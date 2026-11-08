@@ -10,9 +10,21 @@ According to [nearhackathon.com](https://nearhackathon.com/), you need three thi
 2. A **public post on X** (Twitter) with a demo video or screenshots that tags `@NEARProtocol` and `#NEARHackathon` and says you built it at NEAR HACKATHON.
 3. The **submission form** on nearhackathon.com with both links, plus a NEAR account address where a prize would be sent.
 
+**Your links:**
+- Code: [github.com/g4stein/zerodelta](https://github.com/g4stein/zerodelta)
+- Live site: [zerodelta.vercel.app](https://zerodelta.vercel.app/)
+
+Steps 1 and 2 are already done or optional. Start at **Step 3**.
+
 ---
 
-## Step 1 — Put the code on GitHub
+## Step 1 — Put the code on GitHub ✅ Done
+
+Your code is at [github.com/g4stein/zerodelta](https://github.com/g4stein/zerodelta), and the site at [zerodelta.vercel.app](https://zerodelta.vercel.app/) updates automatically whenever new code is pushed there.
+
+One optional touch: on the repository page, click the ⚙️ next to **About**, paste `https://zerodelta.vercel.app` into **Website**, and click **Save changes**. The live link then shows at the top of your GitHub page.
+
+The instructions below are kept for reference.
 
 ### Easiest option: ask Kiro
 1. Make a free account at [github.com](https://github.com) if you don't have one, and connect it to Kiro.
@@ -30,9 +42,9 @@ According to [nearhackathon.com](https://nearhackathon.com/), you need three thi
 
 ---
 
-## Step 2 — Run the app on your computer (for recording)
+## Step 2 — Run the app on your computer (optional)
 
-You only need to do this once.
+**You can skip this.** The live site at [zerodelta.vercel.app](https://zerodelta.vercel.app/) works the same way. Only follow these steps if you want a copy running on your own computer.
 
 1. Install **Node.js LTS** from [nodejs.org](https://nodejs.org). Accept all the defaults.
 2. Download your project: on your GitHub repository page click the green **Code** button → **Download ZIP**, then unzip it.
@@ -54,7 +66,9 @@ If anything goes wrong, copy the error text from the terminal and paste it into 
 
 ## Step 3 — Record a 90-second demo video
 
-Use any screen recorder: **QuickTime** (Mac: File → New Screen Recording), **Xbox Game Bar** (Windows: `Win + G`), or [Loom](https://loom.com). Record the browser window at full screen.
+Open [zerodelta.vercel.app](https://zerodelta.vercel.app/) in your browser and wait a few seconds for the live numbers in the top bar to fill in. Then record with any screen recorder: **QuickTime** (Mac: File → New Screen Recording), **Xbox Game Bar** (Windows: `Win + G`), or [Loom](https://loom.com). Record the browser window at full screen.
+
+Tip: do one practice click of each button before you start recording, so you know what to expect.
 
 Suggested script (read it out loud or add it as captions):
 
@@ -76,7 +90,7 @@ Keep it under about 2 minutes 20 seconds so it fits on X without a paid account.
 
 1. Go to [x.com](https://x.com) and start a new post.
 2. Attach your video (or 2–4 screenshots).
-3. Paste this text, replacing the link with your repository:
+3. Paste this text exactly as it is. Your links are already filled in:
 
 ```
 Built ZeroDelta at NEAR HACKATHON 🛡️⚖️
@@ -88,7 +102,8 @@ Built ZeroDelta at NEAR HACKATHON 🛡️⚖️
 
 Live on intents.near + Chain Signatures.
 
-Code: https://github.com/YOUR-NAME/zerodelta
+Try it: https://zerodelta.vercel.app
+Code: https://github.com/g4stein/zerodelta
 
 @NEARProtocol #NEARHackathon
 ```
@@ -103,7 +118,8 @@ Code: https://github.com/YOUR-NAME/zerodelta
 
 1. Go to [nearhackathon.com](https://nearhackathon.com) and scroll to **Final submission**.
 2. Fill in:
-   - **Repository link:** your GitHub link from Step 1.
+   - **Repository link:** `https://github.com/g4stein/zerodelta`
+   - **Live demo link** (if the form has a field for it): `https://zerodelta.vercel.app`
    - **Demo post link:** your X post link from Step 4.
    - **Tracks:** tick all that apply. ZeroDelta was built for **01 / DFI Unstoppable DeFi**, **03 / PRV Privacy & Private AI**, **04 / BUS Autonomous Business** and **05 / SWM AI Swarms**. It also fits **06 / SEC AI Security & Defense** (policy engine + TEE attestation), so consider ticking that too.
    - **NEAR account address:** where a prize would be paid. If you don't have one, create a free wallet at [wallet.near.org](https://wallet.near.org) or [meteorwallet.app](https://meteorwallet.app) and copy your account name (for example `yourname.near`). Never share your seed phrase or private key; the form only needs the address.
@@ -129,7 +145,9 @@ All four were run successfully before handover. `npm run verify` makes real call
 
 ## Quick checklist
 
-- [ ] GitHub repository is **public** and shows `README.md`
+- [x] GitHub repository is **public** and shows `README.md`
+- [x] Live site works at [zerodelta.vercel.app](https://zerodelta.vercel.app/)
+- [ ] (Optional) Website link added to the repository's **About** box
 - [ ] Demo video recorded (about 90 seconds)
 - [ ] X post is public and tags `@NEARProtocol` and `#NEARHackathon`
 - [ ] Form submitted with both links before **14 Nov 2026, 23:59 UTC**

@@ -2,7 +2,11 @@
 
 **A 3-agent swarm that plans, confidentially solves, and risk-guards delta-neutral cross-chain rebalances on NEAR.**
 
+**▶ Live demo: [zerodelta.vercel.app](https://zerodelta.vercel.app/)** — no wallet or install needed. Click the green button for an approved rebalance and the red button to watch the Risk Guard block a rogue trade.
+
 ZeroDelta lets a DAO or AI-run treasury earn perp funding carry (spot long + equal perp short, net delta ≈ 0) across NEAR, Solana, Arbitrum and Hyperliquid without giving an AI agent unrestricted keys. An AI planner can propose anything. A deterministic risk guard checks the math before any NEAR Intent or Chain Signature is authorized.
+
+The live API can also be called directly: `GET https://zerodelta.vercel.app/api/swarm` returns live NEAR telemetry, and `POST` with `{"mode":"rebalance"}` or `{"mode":"rogue"}` runs the full swarm (see [API](#api-srcappapiswarmroutets)).
 
 | Track | How ZeroDelta fits |
 |---|---|
@@ -24,6 +28,8 @@ npm run dev       # open http://localhost:3000
 ```
 
 Requirements: Node.js ≥ 20.9. No API keys, wallets, Docker or Rust needed.
+
+The hosted demo is a convenience. `npm run verify` is the complete, reproducible check of every claim in this README.
 
 `npm run verify` exits `0` only if every check passes and writes `verify-report.json`. Levels: `PASS`, `WARN` (a live source was unreachable and a labelled fallback was used), `SKIP` (offline mode), `FAIL` (exit code 1). With no internet, run `ZERODELTA_OFFLINE=1 npm run verify`, which skips the live sections and says so.
 
