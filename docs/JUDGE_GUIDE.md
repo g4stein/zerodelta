@@ -12,7 +12,7 @@ AI agents run a delta-neutral carry strategy (spot long + equal perp short) for 
 
 **2. Independent order-risk recomputation and payload commitment.** The contract takes raw legs in cents, computes net delta and leverage itself (rounded up), and requires the signed payload to equal `keccak256` of every order field plus its own account id. Safe-looking numbers with a payload for a different order fail with `PAYLOAD_COMMITMENT_MISMATCH` ([tx 4](https://testnet.nearblocks.io/txns/4PpxYCPEqwtLnuGR6i1Te2wWvs3Ynb94KqqqphEvbSHq)).
 
-**3. Reproducible adversarial proof.** 33 Rust tests on the contract, 91 TypeScript tests, and `npm run verify` (57 checks) that re-fetches every historical transaction from an archival RPC and checks that no rejected transaction produced an MPC receipt.
+**3. Reproducible adversarial proof.** 33 Rust tests on the contract, 100 TypeScript tests, and `npm run verify` (57 checks) that re-fetches every historical transaction from an archival RPC and checks that no rejected transaction produced an MPC receipt.
 
 ## Where to click (about 3 minutes)
 

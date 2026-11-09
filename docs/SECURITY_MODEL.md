@@ -69,8 +69,9 @@ Only after all checks pass does the contract call `v1.signer-prod.testnet.sign` 
 
 [`guardianAgent.ts`](../src/lib/agents/guardianAgent.ts) runs before anything would be sent:
 
-- **Invariant 7** also checks the solver's plan against the *request* (treasury size and pair come from the orchestrator, not the solver), re-derives the raw legs from the plan, and recomputes the payload. Hostile input such as unsafe integers is rejected, never thrown.
-- **Invariant 8** rejects nonces it already approved (exact set, so concurrent runs that finish out of order don't block each other), nonces at or below the contract's live `last_nonce`, and orders whose nonce timestamp is more than 5 minutes old or 60 s in the future.
+- **Invariant 7** also checks the solver's plan against values the solver doesn't control: the treasury size from the request, and the pair from the request (manual mode) or from Agent 1's pick (AUTO mode; Agent 1 is not trusted for strategy, only for naming what Agent 2 must build). It re-derives the raw legs from the plan and recomputes the payload. Hostile input such as unsafe integers or an unknown pair is rejected, not thrown.
+- **Invariant 8** rejects nonces it already approved (exact set, so concurrent runs that finish out of order don't block each other), nonces at or below the contract's live `last_nonce`, and orders whose nonce timestamp is more than 5 minutes old or 60 s in the future. If `last_nonce` can't be read in a live run, the invariant fails (`ONCHAIN_NONCE_UNAVAILABLE`) instead of assuming 0.
+- **NO_TRADE** is recorded inside the guard's signed decision (`economicRecommendation`, `signRequestWithheld`), so a risk-approved but economically withheld run can't later be mistaken for an authorization.
 - Invariants 4–6 check things the contract cannot see: the NEP-413 intent signature and recipient, the encrypted slices (each decrypts, matches its commitment, and the slices add up to the quoted order), and the (simulated) TEE attestation.
 
 Tests: [`tests/swarm.test.ts`](../tests/swarm.test.ts), [`tests/adversarial.test.ts`](../tests/adversarial.test.ts).

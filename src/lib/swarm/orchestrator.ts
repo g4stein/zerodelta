@@ -383,7 +383,8 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
   audit.record("solver", "ATTESTATION_ISSUED", `measurement ${solver.attestation.report.measurement.slice(0, 16)}…`, solver.attestation);
 
   // ---- Agent 3: risk guard ---------------------------------------------------
-  const lastAcceptedNonce = (await lastNoncePromise) ?? 0;
+  // null in live mode = the read failed; the guard then fails invariant 8 (fail closed).
+  const lastAcceptedNonce = await lastNoncePromise;
   const guard = await timed(() =>
     runGuardianAgent({
       runId,
@@ -391,13 +392,12 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
       trustedEnclaveKeys: [getSolverEnclave().publicKeyHex],
       lastAcceptedNonce,
       expected: { treasuryUsd: request.treasuryUsd, pair: sel.asset },
+      economics: { recommendation: economics.recommendation, withhold: economics.settlementWithheld },
     }),
   );
   const guardian = guard.value;
-  if (economics.settlementWithheld && guardian.mpcSignRequest) {
-    // Risk-approved but not worth trading: do not hand out a sign request.
-    guardian.mpcSignRequest = null;
-  }
+  // "Withheld" only describes runs the guard approved; a rejected run is simply blocked.
+  economics.settlementWithheld = economics.settlementWithheld && guardian.decision === "APPROVED";
   const approved = guardian.decision === "APPROVED";
   steps.push({
     agent: "guardian",
@@ -409,7 +409,12 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
       ? `All ${guardian.checks.length} invariants hold (net delta ${(guardian.metrics.netDeltaRatio * 100).toFixed(2)}%, leverage ${guardian.metrics.leverage.toFixed(2)}x)`
       : `REJECTED: ${guardian.violations.join(", ")}`,
   });
-  audit.record("guardian", approved ? "INTENT_APPROVED" : "INTENT_REJECTED", `decision hash ${guardian.decisionHash.slice(0, 16)}…`, guardian.decisionRecord);
+  audit.record(
+    "guardian",
+    !approved ? "INTENT_REJECTED" : economics.settlementWithheld ? "RISK_APPROVED_SETTLEMENT_WITHHELD" : "INTENT_APPROVED",
+    `decision hash ${guardian.decisionHash.slice(0, 16)}…${economics.settlementWithheld ? " (NO_TRADE: no sign request)" : ""}`,
+    guardian.decisionRecord,
+  );
 
   // Independent check by the deployed contract (free view call) on the solver's raw order.
   const onchainCheckPromise: Promise<OnchainOrderCheck | null> = live

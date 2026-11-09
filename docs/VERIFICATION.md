@@ -14,7 +14,7 @@ npm ci          # Node.js >= 20.9
 | Command | What it proves | Network | Count |
 |---|---|---|---|
 | `npm run typecheck` | Whole repo type-checks | none | — |
-| `npm test` | TypeScript unit + integration tests: NEP-413, scanner ranking and NO_TRADE, negotiation, 8 guard invariants, compromised solver, payload swap, replay, stale and concurrent nonces, intent/attestation/envelope tampering, mocked RPC failures, TS/Rust mirror vectors, Hyperliquid SDK vectors, recorded proof data | none (fetch is mocked where used) | 91 tests in 3 files |
+| `npm test` | TypeScript unit + integration tests: NEP-413, scanner ranking and NO_TRADE, negotiation, 8 guard invariants, compromised solver, payload swap, replay, stale and concurrent nonces, intent/attestation/envelope tampering, mocked RPC failures, TS/Rust mirror vectors, Hyperliquid SDK vectors, recorded proof data | none (fetch is mocked where used) | 100 tests in 3 files |
 | `cd contracts/risk-guard && cargo test` | The deployed contract's logic: 18 unit tests in `src/lib.rs` + 15 adversarial tests in `tests/adversarial.rs` (rounding boundaries, every order field bound by the payload, invalid symbols, u64 extremes, deposits, nonce floor) | none | 33 tests (needs Rust; 1.81 matches the deployed build) |
 | `npm run verify:offline` | Offline subset of the harness, including the recorded proof data, WASM hash, MPC signature recovery, NO_TRADE and Hyperliquid vectors | none | 22 pass, 25 skipped (live-only) |
 | `npm run verify` | Everything above plus live read-only checks: NEAR RPC, `intents.near` `simulate_intents`, 1Click, Hyperliquid, the deployed contract's state, and every historical transaction re-fetched from an archival RPC | public endpoints | 57 checks |
@@ -37,12 +37,12 @@ You can check the same things by hand on [Nearblocks](https://testnet.nearblocks
 
 ## 4. The committed report
 
-`verify-report.json` is the output of a real `npm run verify` run. It records:
+`npm run verify` writes its report to `verify-report.local.json` (git-ignored), so running it never dirties the repo. `npm run verify:report` writes the committed snapshot `verify-report.json` instead. Each report records:
 
-- `source.commit`: the commit the run used, and `source.dirty` (true if tracked files had uncommitted changes, e.g. the run that produced the report before it was committed).
+- `source.commit`: the commit the run started from; `source.dirty` (true if tracked files had uncommitted changes) and `source.uncommittedDiffSha256` (sha256 of `git diff HEAD`, identifying exactly which uncommitted changes ran).
 - `environment` (Node, platform, Rust), `totals`, per-section counts, the contract and transaction ids, and every check's detail.
 
-A report can't name the commit that contains it, so a committed report always describes its parent commit or uncommitted work on top of it. For a report tied to an exact commit, use the CI artifact (below) or run `npm run verify` yourself; it overwrites the file.
+A report can't name the commit that contains it, so a committed report always describes its parent commit or uncommitted work on top of it. For a report tied to an exact commit, use the CI artifact (below) or run `npm run verify` yourself.
 
 ## 5. CI
 
