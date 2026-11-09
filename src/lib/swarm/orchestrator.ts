@@ -1,12 +1,18 @@
 /**
- * Swarm orchestrator: runs Scanner -> Confidential Solver -> Risk Guard ->
- * (dry-run) settlement, and records a hash-chained audit trail.
+ * Swarm orchestrator.
  *
- * Settlement is a dry run: the signed intent is executed by the real
- * `intents.near` contract through its `simulate_intents` view method, the
- * deployed testnet Risk Guard contract re-checks the metrics (`check_rebalance`),
- * and the Chain Signatures request is prepared but not broadcast. No funds move.
- * The one-time on-chain proof transactions live in testnet-proof.json.
+ *   Agent 1 (Scanner) probes live costs for every candidate, ranks the
+ *   opportunity matrix, sizes the plan and proposes a slice count.
+ *   Agent 2 (Solver) quotes, slices, commits the order and signs the intent.
+ *   If its measured slice slippage is above Agent 1's target, the two agents
+ *   negotiate (SOLVER_SLIPPAGE_FEEDBACK -> SCANNER_RESLICE_ADJUSTMENT) and
+ *   re-solve, up to 3 times, before anything reaches Agent 3.
+ *   Agent 3 (Risk Guard) checks 8 invariants; the deployed testnet contract
+ *   independently recomputes the same order (`check_order_params`).
+ *
+ * Settlement is a dry run: `intents.near` executes the signed intent through
+ * `simulate_intents`, and the guard-gated MPC request is prepared but not
+ * broadcast. The one-time on-chain proof transactions live in testnet-proof.json.
  */
 import { createEphemeralSigner } from "../near/nep413";
 import {
@@ -19,18 +25,27 @@ import {
   type OneClickTokenFeed,
 } from "../near/rpcClient";
 import { fetchFundingFeed, FUNDING_SNAPSHOT, type FundingFeed } from "../market/fundingFeed";
-import { buildRogueDirectionalPlan, runScannerAgent, type ScannerResult } from "../agents/scannerAgent";
+import {
+  buildRogueDirectionalPlan,
+  probeEntryCosts,
+  proposeReslice,
+  runScannerAgent,
+  SCANNER_ASSUMPTIONS,
+  type CostProbe,
+  type ScannerResult,
+} from "../agents/scannerAgent";
 import { getSolverEnclave, runSolverAgent, type SolverResult } from "../agents/solverAgent";
 import {
   GUARDIAN_NEAR_ACCOUNT,
   HEDGE_DERIVATION_PATH,
+  RISK_POLICY,
   getGuardianIdentity,
   runGuardianAgent,
   type GuardianDecision,
 } from "../agents/guardianAgent";
 import { hashObject, sha256Hex } from "../crypto/encoding";
-import { checkRebalanceOnchain, toOnchainMetrics, type OnchainPolicyCheck } from "../near/riskGuardContract";
-import { PAIRS, type RebalancePlan, type SwarmRequest } from "./types";
+import { checkOrderOnchain, getOnchainLastNonce, type OnchainOrderCheck } from "../near/riskGuardContract";
+import { LIMITS, PAIRS, type PairId, type RebalancePlan, type SwarmRequest } from "./types";
 
 export type AgentName = "orchestrator" | "scanner" | "solver" | "guardian" | "settlement";
 
@@ -71,10 +86,26 @@ export interface Settlement {
   notes: string[];
 }
 
+export interface NegotiationRound {
+  round: number;
+  sliceCount: number;
+  observedSlippageBps: number;
+  targetBps: number;
+  ceilingBps: number;
+  action: "ACCEPTED" | "RESLICE_REQUESTED" | "AT_SLICE_LIMIT" | "NOT_NEGOTIATED";
+  nextSliceCount?: number;
+  quoteSources: string[];
+  note: string;
+}
+
 export interface SwarmRun {
   runId: string;
   mode: SwarmRequest["mode"];
   request: SwarmRequest;
+  /** What the swarm actually ran after Agent 1's choices and the negotiation. */
+  resolved: { pair: PairId; sliceCount: number; initialSliceCount: number; hedgeLeverage: number };
+  costProbes: Record<PairId, CostProbe>;
+  negotiation: NegotiationRound[];
   live: boolean;
   startedAt: string;
   finishedAt: string;
@@ -84,8 +115,8 @@ export interface SwarmRun {
   injectedPlan: RebalancePlan | null;
   solver: SolverResult;
   guardian: GuardianDecision;
-  /** Result of the deployed testnet contract's check_rebalance view on this run's metrics (null offline). */
-  onchainCheck: OnchainPolicyCheck | null;
+  /** The deployed contract's own evaluation of this run's raw order (null offline). */
+  onchainCheck: OnchainOrderCheck | null;
   mpcAccount: DerivedMpcAccount | null;
   settlement: Settlement;
   steps: AgentStep[];
@@ -139,7 +170,7 @@ async function timed<T>(fn: () => Promise<T> | T): Promise<{ value: T; startedAt
 
 const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 
-function buildAllocation(solver: SolverResult, approved: boolean, treasuryUsd: number): AllocationRow[] {
+function buildAllocation(solver: SolverResult, approved: boolean, treasuryUsd: number, hedgeLeverage: number): AllocationRow[] {
   if (!approved) {
     return [
       {
@@ -188,7 +219,7 @@ function buildAllocation(solver: SolverResult, approved: boolean, treasuryUsd: n
     amount: `${usd(perp.notionalUsd)} notional`,
     usd: 0,
     deltaUsd: perp.deltaUsd,
-    role: `Perp ${perp.side.toLowerCase()} hedge (1x)`,
+    role: `Perp ${perp.side.toLowerCase()} hedge (${hedgeLeverage}x margin)`,
   });
   rows.push({
     chain: "NEAR",
@@ -202,6 +233,8 @@ function buildAllocation(solver: SolverResult, approved: boolean, treasuryUsd: n
   return rows;
 }
 
+const MAX_RESLICE_ROUNDS = 3;
+
 export async function runSwarm(request: SwarmRequest, options: RunOptions = {}): Promise<SwarmRun> {
   const live = options.live ?? !isOfflineEnv();
   const started = new Date();
@@ -209,11 +242,18 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
   const runId = sha256Hex(`${started.toISOString()}:${Math.random()}`).slice(0, 12);
   const audit = new AuditTrail();
   const steps: AgentStep[] = [];
-  audit.record("orchestrator", "RUN_STARTED", `${request.mode} | ${PAIRS[request.pair].label} | ${usd(request.treasuryUsd)} | ${request.sliceCount} slices | live=${live}`, request);
+  audit.record(
+    "orchestrator",
+    "RUN_STARTED",
+    `${request.mode} | pair ${request.pair} | ${usd(request.treasuryUsd)} | slices ${request.sliceCount} | live=${live}`,
+    request,
+  );
+  const signer = createEphemeralSigner();
+  const lastNoncePromise = live ? getOnchainLastNonce() : Promise.resolve(0);
 
-  // ---- Market data ----------------------------------------------------------
-  const [tokens, funding] = live
-    ? await Promise.all([fetchOneClickTokens(), fetchFundingFeed()])
+  // ---- Market data + live cost probes ---------------------------------------
+  const [tokens, funding, costProbes] = live
+    ? await Promise.all([fetchOneClickTokens(), fetchFundingFeed(), probeEntryCosts(true, signer.accountId)])
     : [
         {
           live: false,
@@ -224,65 +264,109 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
           fetchedAt: new Date().toISOString(),
         } satisfies OneClickTokenFeed,
         { live: false, source: "offline-mode-snapshot", markets: FUNDING_SNAPSHOT, fetchedAt: new Date().toISOString() } satisfies FundingFeed,
+        await probeEntryCosts(false, signer.accountId),
       ];
-  audit.record("orchestrator", "MARKET_DATA_LOADED", `1Click tokens: ${tokens.count} (${tokens.live ? "live" : tokens.source}); funding: ${funding.live ? "live Hyperliquid" : funding.source}`, {
-    tokens: tokens.count,
-    funding: funding.markets,
-  });
+  audit.record(
+    "orchestrator",
+    "MARKET_DATA_LOADED",
+    `1Click tokens: ${tokens.count} (${tokens.live ? "live" : tokens.source}); funding: ${funding.live ? "live Hyperliquid" : funding.source}; cost probes: ${Object.values(costProbes)
+      .map((c) => `${c.asset} ${c.entryCostBps}bps/${c.source}`)
+      .join(", ")}`,
+    { tokens: tokens.count, funding: funding.markets, costProbes },
+  );
 
-  // ---- Agent 1: Scanner -----------------------------------------------------
-  const scan = await timed(() => runScannerAgent({ pair: request.pair, treasuryUsd: request.treasuryUsd, tokens, funding }));
+  // ---- Agent 1: autonomous scanner -----------------------------------------
+  const scan = await timed(() => runScannerAgent({ pair: request.pair, treasuryUsd: request.treasuryUsd, tokens, funding, costs: costProbes }));
   const scanner = scan.value;
+  const sel = scanner.selected;
   steps.push({
     agent: "scanner",
-    title: "Opportunity & Funding Scanner",
+    title: "Autonomous Opportunity Scanner",
     status: "completed",
     startedAt: scan.startedAt,
     durationMs: scan.durationMs,
-    summary: `${scanner.selected.asset}-PERP funding ${scanner.selected.fundingAprPct}% APR -> proposed 50/50 spot-long / perp-short plan (${scanner.expectedTreasuryAprPct}% APR on treasury)`,
+    summary: `Ranked ${scanner.opportunityMatrix.length} markets; ${scanner.selection.mode === "auto" ? "chose" : "user chose"} ${sel.asset} (${sel.netCarryAprPct}% net carry, ${sel.hedgeLeverage}x hedge, ${scanner.recommendedSlices} slices)`,
   });
-  audit.record("scanner", "PLAN_PROPOSED", `plan ${scanner.plan.planId}`, scanner.plan);
+  audit.record(
+    "scanner",
+    "OPPORTUNITIES_RANKED",
+    scanner.opportunityMatrix.map((o) => `#${o.rank} ${o.asset} net ${o.netCarryAprPct}%`).join(" | ") + ` -> ${scanner.selection.reason}`,
+    scanner.opportunityMatrix,
+  );
+  audit.record("scanner", "PLAN_PROPOSED", `plan ${scanner.plan.planId}; ${scanner.sliceRationale}`, scanner.plan);
 
   let plan = scanner.plan;
   let injectedPlan: RebalancePlan | null = null;
   if (request.mode === "rogue") {
-    injectedPlan = buildRogueDirectionalPlan(request.pair, request.treasuryUsd);
+    injectedPlan = buildRogueDirectionalPlan(sel.asset, request.treasuryUsd);
     plan = injectedPlan;
     audit.record("orchestrator", "ROGUE_PLAN_INJECTED", "hallucinated unhedged 10x long replaces the scanner plan", injectedPlan);
   }
+  if (request.mode === "spoofed_metrics") {
+    audit.record("orchestrator", "SOLVER_COMPROMISED", "Agent 2 will report hedged legs but hide a 10x order in its slices and MPC payload", null);
+  }
 
-  // ---- Agent 2: Confidential solver ----------------------------------------
+  // ---- Agent 2 + negotiation with Agent 1 -----------------------------------
   const guardianId = getGuardianIdentity();
-  const signer = createEphemeralSigner();
-  const sliceCount = request.mode === "rogue" ? 1 : request.sliceCount;
-  const solve = await timed(() =>
-    runSolverAgent({
-      plan,
-      sliceCount,
-      tokens,
-      signer,
-      guardianBoxPublicKey: guardianId.boxPublicKeyHex,
-      live,
-      slippageToleranceBps: request.mode === "rogue" ? 300 : 25,
-    }),
-  );
+  const initialSliceCount = request.mode === "rogue" ? 1 : request.sliceCount === "auto" ? scanner.recommendedSlices : request.sliceCount;
+  const negotiation: NegotiationRound[] = [];
+  const target = SCANNER_ASSUMPTIONS.targetSliceImpactBps;
+  let slices = initialSliceCount;
+  const solve = await timed(async () => {
+    let result: SolverResult | null = null;
+    for (let round = 1; round <= MAX_RESLICE_ROUNDS + 1; round++) {
+      result = await runSolverAgent({
+        plan,
+        sliceCount: slices,
+        tokens,
+        signer,
+        guardianBoxPublicKey: guardianId.boxPublicKeyHex,
+        live,
+        slippageToleranceBps: request.mode === "rogue" ? 300 : 25,
+        compromise: request.mode === "spoofed_metrics" ? "spoofed_metrics" : undefined,
+      });
+      const observed = result.maxPriceImpactBps;
+      const base = { round, sliceCount: slices, observedSlippageBps: observed, targetBps: target, ceilingBps: RISK_POLICY.maxSlippageBps, quoteSources: result.quotes.map((q) => q.source) };
+      if (request.mode === "rogue") {
+        negotiation.push({ ...base, action: "NOT_NEGOTIATED", note: "Injected plan bypasses Agent 1, so there is no negotiation." });
+        break;
+      }
+      audit.record("solver", "SOLVER_SLIPPAGE_FEEDBACK", `round ${round}: ${slices} slices -> ${observed} bps slice slippage (target ${target}, ceiling ${RISK_POLICY.maxSlippageBps})`, base);
+      if (observed <= target) {
+        negotiation.push({ ...base, action: "ACCEPTED", note: `${observed} bps <= ${target} bps target: Agent 1 accepts ${slices} slices.` });
+        break;
+      }
+      if (slices >= LIMITS.sliceMax || round > MAX_RESLICE_ROUNDS) {
+        negotiation.push({ ...base, action: "AT_SLICE_LIMIT", note: `Still ${observed} bps at ${slices} slices; sent to Agent 3 as-is.` });
+        break;
+      }
+      const next = proposeReslice(slices, observed);
+      negotiation.push({ ...base, action: "RESLICE_REQUESTED", nextSliceCount: next, note: `Impact ~ sqrt(slice): ${slices} x (${observed}/${target})^2 -> ${next} slices.` });
+      audit.record("scanner", "SCANNER_RESLICE_ADJUSTMENT", `round ${round}: ${slices} -> ${next} slices to cut slice slippage below ${target} bps`, { from: slices, to: next, observed, target });
+      slices = next;
+    }
+    return result!;
+  });
   const solver = solve.value;
+  const rounds = negotiation.length;
   steps.push({
     agent: "solver",
     title: "Confidential TEE Solver",
     status: "completed",
     startedAt: solve.startedAt,
     durationMs: solve.durationMs,
-    summary: `${solver.envelope.sliceCount} encrypted slices, ${solver.quotes.map((q) => `${q.legId} via ${q.source}`).join(", ")}; NEP-413 intent signed by ${solver.signer.accountId.slice(0, 10)}…`,
+    summary: `${rounds} negotiation round${rounds === 1 ? "" : "s"} -> ${solver.envelope.sliceCount} encrypted slices at ${solver.maxPriceImpactBps} bps; order nonce ${solver.order.nonce}; NEP-413 intent signed by ${solver.signer.accountId.slice(0, 10)}…`,
   });
   audit.record("solver", "QUOTES_RECEIVED", solver.quotes.map((q) => `${q.legId}: ${q.source}, impact ${q.priceImpactBps} bps`).join("; "), solver.quotes);
   audit.record("solver", "ENVELOPE_SEALED", `envelope ${solver.envelope.envelopeId} (${solver.envelope.sliceCount} slices)`, solver.envelope);
   audit.record("solver", "INTENT_SIGNED", `NEP-413 payload hash ${solver.intent.payloadHashHex.slice(0, 16)}…`, solver.intent.signed);
+  audit.record("solver", "ORDER_COMMITTED", `keccak256(order) ${solver.hedgeOrderPayloadHex.slice(0, 16)}… nonce ${solver.order.nonce}`, { order: solver.order, payload: solver.hedgeOrderPayloadHex });
   audit.record("solver", "ATTESTATION_ISSUED", `measurement ${solver.attestation.report.measurement.slice(0, 16)}…`, solver.attestation);
 
-  // ---- Agent 3: Risk guard --------------------------------------------------
+  // ---- Agent 3: risk guard ---------------------------------------------------
+  const lastAcceptedNonce = (await lastNoncePromise) ?? 0;
   const guard = await timed(() =>
-    runGuardianAgent({ runId, solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex] }),
+    runGuardianAgent({ runId, solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex], lastAcceptedNonce }),
   );
   const guardian = guard.value;
   const approved = guardian.decision === "APPROVED";
@@ -298,10 +382,9 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
   });
   audit.record("guardian", approved ? "INTENT_APPROVED" : "INTENT_REJECTED", `decision hash ${guardian.decisionHash.slice(0, 16)}…`, guardian.decisionRecord);
 
-  // ---- Independent on-chain policy check (deployed testnet Risk Guard) -------
-  // Runs the deployed contract's own check_rebalance logic on the guardian's metrics.
-  const onchainCheckPromise: Promise<OnchainPolicyCheck | null> = live
-    ? checkRebalanceOnchain(toOnchainMetrics(guardian.metrics))
+  // Independent check by the deployed contract (free view call) on the solver's raw order.
+  const onchainCheckPromise: Promise<OnchainOrderCheck | null> = live
+    ? checkOrderOnchain(solver.order, solver.hedgeOrderPayloadHex)
     : Promise.resolve(null);
 
   // ---- Settlement (dry run) -------------------------------------------------
@@ -311,10 +394,10 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
       return {
         status: "BLOCKED_BY_GUARD",
         simulation: null,
-        allocation: buildAllocation(solver, false, request.treasuryUsd),
+        allocation: buildAllocation(solver, false, request.treasuryUsd, sel.hedgeLeverage),
         notes: [
           "The signed intent was never sent to intents.near.",
-          "No Chain Signatures request was created for the hedge leg.",
+          "No record_rebalance call was prepared, so the contract never asks the MPC network to sign.",
           `Violations: ${guardian.violations.join(", ")}`,
         ],
       };
@@ -323,7 +406,7 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
       return {
         status: "SKIPPED_OFFLINE",
         simulation: null,
-        allocation: buildAllocation(solver, true, request.treasuryUsd),
+        allocation: buildAllocation(solver, true, request.treasuryUsd, sel.hedgeLeverage),
         notes: ["Offline mode: intents.near simulation and MPC key derivation were skipped."],
       };
     }
@@ -336,7 +419,7 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
     return {
       status: sigOk ? "DRY_RUN_SETTLED" : simulation.status === "UNREACHABLE" ? "SKIPPED_OFFLINE" : "VERIFIER_REJECTED",
       simulation,
-      allocation: buildAllocation(solver, true, request.treasuryUsd),
+      allocation: buildAllocation(solver, true, request.treasuryUsd, sel.hedgeLeverage),
       notes: [
         simulation.status === "SIGNATURE_ACCEPTED_UNFUNDED"
           ? "intents.near (mainnet) accepted the NEP-413 signature and stopped at the balance check, as expected for an unfunded demo account."
@@ -344,9 +427,9 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
             ? "intents.near (mainnet) executed the intent in simulation."
             : `intents.near simulation status: ${simulation.status}${simulation.panicMessage ? ` (${simulation.panicMessage})` : ""}`,
         derived.live
-          ? `Hedge account controlled via Chain Signatures: ${derived.evmAddress} (derived live by ${HEDGE_DERIVATION_PATH}).`
+          ? `Hedge key belongs to the Risk Guard contract ${GUARDIAN_NEAR_ACCOUNT}: ${derived.evmAddress} (path ${HEDGE_DERIVATION_PATH}). Only the contract can request signatures for it.`
           : `MPC derivation unavailable: ${derived.error}`,
-        "This run's MPC sign request is prepared, not broadcast. The same request was executed once on testnet; see the On-chain proof tab.",
+        "This run's record_rebalance call is prepared, not broadcast. The same flow ran once on testnet; see the On-chain proof tab.",
       ],
     };
   });
@@ -356,9 +439,9 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
     const agrees = onchainCheck.live ? onchainCheck.approved === approved : null;
     audit.record(
       "guardian",
-      "ONCHAIN_POLICY_CHECK",
+      "ONCHAIN_ORDER_CHECK",
       onchainCheck.live
-        ? `${onchainCheck.contractId}.check_rebalance -> ${onchainCheck.approved ? "APPROVED" : `REJECTED (${onchainCheck.violations?.join("; ")})`}; agrees with off-chain guard: ${agrees}`
+        ? `${onchainCheck.contractId}.check_order_params -> ${onchainCheck.approved ? "APPROVED" : `REJECTED (${onchainCheck.violations?.join("; ")})`}; contract-computed delta ${onchainCheck.netDeltaBps} bps, leverage ${onchainCheck.leverageX100}; agrees with Agent 3: ${agrees}`
         : `on-chain check unavailable: ${onchainCheck.error}`,
       onchainCheck,
     );
@@ -380,7 +463,10 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
   return {
     runId,
     mode: request.mode,
-    request: { ...request, sliceCount },
+    request,
+    resolved: { pair: sel.asset, sliceCount: solver.sliceCount, initialSliceCount, hedgeLeverage: sel.hedgeLeverage },
+    costProbes,
+    negotiation,
     live,
     startedAt: started.toISOString(),
     finishedAt: finished.toISOString(),

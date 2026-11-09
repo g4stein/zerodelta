@@ -4,8 +4,9 @@
  * The guard is pure, deterministic code (no LLM). It recomputes every number
  * itself from the executable plan, the decrypted order slices, the signed
  * NEP-413 intent and the TEE attestation, then either:
- *   - APPROVES: emits a signed approval and the NEAR Chain Signatures `sign`
- *     request for the hedge leg (v1.signer-prod.testnet), or
+ *   - APPROVES: emits a signed approval and the `record_rebalance` call for the
+ *     on-chain Risk Guard contract, which re-checks everything and only then
+ *     calls `v1.signer-prod.testnet.sign` itself (guard-gated MPC), or
  *   - REJECTS: emits a signed rejection proof listing the violated invariants.
  *
  * Invariants:
@@ -15,14 +16,18 @@
  *   4. TEE attestation    signature, measurement, key, binding, freshness
  *   5. NEP-413 signature  ed25519 valid, recipient, signer, deadline
  *   6. Envelope integrity every slice decrypts, matches commitment and sums to the order
+ *   7. Order-to-payload   raw order legs re-derived from the plan == the solver's order,
+ *      binding            and keccak256(canonical order) == the payload MPC would sign
+ *   8. Anti-replay +      nonce strictly above every accepted nonce (on-chain + local),
+ *      guard-gated MPC    and the sign request is routed through the Risk Guard contract
  */
 import nacl from "tweetnacl";
 import { keyToImplicitAddress } from "near-api-js";
-import testnetProof from "../../../testnet-proof.json";
 import { verifyNep413, INTENTS_CONTRACT, type IntentMessage } from "../near/nep413";
-import { MPC_CONTRACT } from "../near/rpcClient";
+import { HEDGE_DERIVATION_PATH as PATH, MPC_SIGNER_CONTRACT, RISK_GUARD_CONTRACT_ID, SOLVER_ACCOUNT_ID } from "../near/deployment";
+import { computeHedgePayloadHex, computeOrderMetrics, orderParamsFromPlan, sameOrder, type OrderParams } from "../near/orderCommitment";
 import { EXPECTED_SOLVER_MEASUREMENT, computeReportData, verifyAttestation, type AttestationVerification } from "../crypto/attestation";
-import { bytesToHex, canonicalJson, fromBase64, hashObject, hexToBytes, keccak256Hex, sha256Hex } from "../crypto/encoding";
+import { bytesToHex, fromBase64, hashObject, hexToBytes, sha256Hex } from "../crypto/encoding";
 import type { OrderSlice, SolverResult } from "./solverAgent";
 import { PAIRS, USDC_NEAR_ASSET, type RebalancePlan } from "../swarm/types";
 
@@ -33,9 +38,12 @@ export const RISK_POLICY = {
   attestationMaxAgeMs: 5 * 60_000,
 } as const;
 
-/** The real, funded testnet Guard account that owns the Risk Guard contract (see testnet-proof.json). */
-export const GUARDIAN_NEAR_ACCOUNT = testnetProof.accounts.guard || "zerodelta-guardian.testnet";
-export const HEDGE_DERIVATION_PATH = "zerodelta/hedge/arbitrum";
+/**
+ * The Risk Guard contract account. Because the contract itself calls the MPC signer,
+ * it is the `predecessor` the hedge key is derived from (see testnet-proof.json).
+ */
+export const GUARDIAN_NEAR_ACCOUNT = RISK_GUARD_CONTRACT_ID;
+export const HEDGE_DERIVATION_PATH = PATH;
 
 export type CheckId =
   | "DELTA_NEUTRALITY"
@@ -43,7 +51,9 @@ export type CheckId =
   | "SLIPPAGE_CEILING"
   | "TEE_ATTESTATION"
   | "NEP413_SIGNATURE"
-  | "ENVELOPE_INTEGRITY";
+  | "ENVELOPE_INTEGRITY"
+  | "ORDER_PAYLOAD_BINDING"
+  | "REPLAY_AND_MPC_GATE";
 
 export interface PolicyCheck {
   id: CheckId;
@@ -68,14 +78,35 @@ export interface RiskMetrics {
   maxPriceImpactBps: number;
 }
 
+/** Arguments of the contract's `record_rebalance` method (snake_case, as on-chain). */
+export interface RebalanceCallArgs {
+  rebalance: {
+    run_id: string;
+    order: OrderParams;
+    hedge_order_payload_hex: string;
+    plan_hash: string;
+    intent_payload_hash: string;
+    attestation_report_hash: string;
+    decision_hash: string;
+  };
+  request_mpc_sign: true;
+}
+
+/** The only authorised path to an MPC signature: through the Risk Guard contract. */
 export interface MpcSignRequest {
-  contractId: typeof MPC_CONTRACT;
-  methodName: "sign";
-  args: { request: { payload_v2: { Ecdsa: string }; path: string; domain_id: 0 } };
+  contractId: string;
+  methodName: "record_rebalance";
+  signerId: string;
+  args: RebalanceCallArgs;
   attachedDepositYocto: "1";
   gas: "300000000000000";
-  hedgeOrder: Record<string, unknown>;
-  predecessor: string;
+  /** What the contract will call after its own checks pass. */
+  forwardsTo: {
+    contractId: string;
+    methodName: "sign";
+    args: { request: { payload_v2: { Ecdsa: string }; path: string; domain_id: 0 } };
+    predecessor: string;
+  };
   status: "PREPARED_NOT_BROADCAST";
 }
 
@@ -200,11 +231,55 @@ function checkIntent(solver: SolverResult): { pass: boolean; detail: string } {
   return { pass: true, detail: "tweetnacl + near-api-js both verify; recipient, signer and deadline valid" };
 }
 
+/** Nonces this guardian has already approved (process memory; the contract keeps its own). */
+const approvedNonces = new Set<number>();
+let highestApprovedNonce = 0;
+
+function checkBinding(solver: SolverResult): { pass: boolean; detail: string; expectedPayloadHex: string; recomputed: OrderParams } {
+  const recomputed = orderParamsFromPlan(solver.executablePlan, solver.maxPriceImpactBps, solver.order.nonce);
+  const expectedPayloadHex = computeHedgePayloadHex(RISK_GUARD_CONTRACT_ID, recomputed);
+  const metrics = computeOrderMetrics(recomputed);
+  if (!sameOrder(recomputed, solver.order)) {
+    return { pass: false, expectedPayloadHex, recomputed, detail: "solver's order legs differ from the legs re-derived from its own plan" };
+  }
+  if (solver.commitmentContractId !== RISK_GUARD_CONTRACT_ID) {
+    return { pass: false, expectedPayloadHex, recomputed, detail: `payload committed to ${solver.commitmentContractId}, expected ${RISK_GUARD_CONTRACT_ID}` };
+  }
+  if (solver.hedgeOrderPayloadHex !== expectedPayloadHex) {
+    return {
+      pass: false,
+      expectedPayloadHex,
+      recomputed,
+      detail: `PAYLOAD_COMMITMENT_MISMATCH: payload ${solver.hedgeOrderPayloadHex.slice(0, 12)}… != keccak256(order) ${expectedPayloadHex.slice(0, 12)}…`,
+    };
+  }
+  return {
+    pass: true,
+    expectedPayloadHex,
+    recomputed,
+    detail: `keccak256(order) = ${expectedPayloadHex.slice(0, 16)}…; contract math: ${metrics.net_delta_bps} bps delta, ${metrics.leverage_x100 / 100}x`,
+  };
+}
+
+function checkReplay(nonce: number, lastAcceptedNonce: number): { pass: boolean; detail: string } {
+  if (!Number.isSafeInteger(nonce) || nonce <= 0) return { pass: false, detail: "nonce must be a positive safe integer (u64)" };
+  if (approvedNonces.has(nonce) || nonce <= highestApprovedNonce) {
+    return { pass: false, detail: `NONCE_ALREADY_USED: ${nonce} <= highest approved ${highestApprovedNonce}` };
+  }
+  if (nonce <= lastAcceptedNonce) return { pass: false, detail: `NONCE_ALREADY_USED: ${nonce} <= on-chain last_nonce ${lastAcceptedNonce}` };
+  return {
+    pass: true,
+    detail: `nonce ${nonce} > on-chain ${lastAcceptedNonce}; MPC request routed via ${RISK_GUARD_CONTRACT_ID}.record_rebalance (predecessor = contract)`,
+  };
+}
+
 export function runGuardianAgent(input: {
   runId: string;
   solver: SolverResult;
   trustedMeasurements?: string[];
   trustedEnclaveKeys: string[];
+  /** Last nonce accepted by the deployed contract (0 offline). */
+  lastAcceptedNonce?: number;
   now?: Date;
 }): GuardianDecision {
   const { solver } = input;
@@ -220,6 +295,7 @@ export function runGuardianAgent(input: {
       envelopeHash: solver.envelope.envelopeHash,
       intentPayloadHash: solver.intent.payloadHashHex,
       planHash: hashObject(solver.executablePlan),
+      hedgeOrderPayloadHex: solver.hedgeOrderPayloadHex,
     }),
     now,
     maxAgeMs: RISK_POLICY.attestationMaxAgeMs,
@@ -229,6 +305,8 @@ export function runGuardianAgent(input: {
     .map(([k]) => k);
   const intentCheck = checkIntent(solver);
   const envCheck = checkEnvelope(solver, guardian);
+  const binding = checkBinding(solver);
+  const replay = checkReplay(solver.order.nonce, input.lastAcceptedNonce ?? 0);
 
   const checks: PolicyCheck[] = [
     {
@@ -287,6 +365,24 @@ export function runGuardianAgent(input: {
       formula: "sha256(nacl.box.open(slice)) == commitment AND Σ slices == order",
       detail: envCheck.detail,
     },
+    {
+      id: "ORDER_PAYLOAD_BINDING",
+      label: "Order-to-payload binding",
+      pass: binding.pass,
+      observed: binding.pass ? "bound" : "spoofed",
+      threshold: "payload == keccak256(raw legs)",
+      formula: "keccak256(domain|contract|asset|treasury|spot|short|long|collateral|slip|nonce)",
+      detail: binding.detail,
+    },
+    {
+      id: "REPLAY_AND_MPC_GATE",
+      label: "Anti-replay + guard-gated MPC",
+      pass: replay.pass,
+      observed: replay.pass ? `nonce ${solver.order.nonce}` : "replay",
+      threshold: "nonce > last accepted",
+      formula: "nonce > max(on-chain last_nonce, approved nonces); sign only via contract",
+      detail: replay.detail,
+    },
   ];
 
   const violations = checks.filter((c) => !c.pass).map((c) => c.id);
@@ -298,6 +394,8 @@ export function runGuardianAgent(input: {
     planHash: solver.planHash,
     intentPayloadHash: solver.intent.payloadHashHex,
     attestationReportHash: solver.attestation.reportHash,
+    hedgeOrderPayloadHex: solver.hedgeOrderPayloadHex,
+    orderNonce: solver.order.nonce,
     policy: RISK_POLICY,
     checks: checks.map(({ id, pass, observed, threshold }) => ({ id, pass, observed, threshold })),
     decidedAt,
@@ -307,26 +405,32 @@ export function runGuardianAgent(input: {
 
   let mpcSignRequest: MpcSignRequest | null = null;
   if (decision === "APPROVED") {
-    const hedge = solver.executablePlan.legs.find((l) => l.kind === "PERP");
-    const hedgeOrder = {
-      venue: "Hyperliquid",
-      market: hedge?.asset,
-      side: hedge?.side,
-      notionalUsd: Math.round((hedge?.notionalUsd ?? 0) * 100) / 100,
-      planHash: solver.planHash,
-      intentPayloadHash: solver.intent.payloadHashHex,
-      decisionHash,
-    };
+    approvedNonces.add(solver.order.nonce);
+    highestApprovedNonce = Math.max(highestApprovedNonce, solver.order.nonce);
     mpcSignRequest = {
-      contractId: MPC_CONTRACT,
-      methodName: "sign",
+      contractId: RISK_GUARD_CONTRACT_ID,
+      methodName: "record_rebalance",
+      signerId: SOLVER_ACCOUNT_ID,
       args: {
-        request: { payload_v2: { Ecdsa: keccak256Hex(canonicalJson(hedgeOrder)) }, path: HEDGE_DERIVATION_PATH, domain_id: 0 },
+        rebalance: {
+          run_id: input.runId,
+          order: solver.order,
+          hedge_order_payload_hex: solver.hedgeOrderPayloadHex,
+          plan_hash: solver.planHash,
+          intent_payload_hash: solver.intent.payloadHashHex,
+          attestation_report_hash: solver.attestation.reportHash,
+          decision_hash: decisionHash,
+        },
+        request_mpc_sign: true,
       },
       attachedDepositYocto: "1",
       gas: "300000000000000",
-      hedgeOrder,
-      predecessor: GUARDIAN_NEAR_ACCOUNT,
+      forwardsTo: {
+        contractId: MPC_SIGNER_CONTRACT,
+        methodName: "sign",
+        args: { request: { payload_v2: { Ecdsa: solver.hedgeOrderPayloadHex }, path: HEDGE_DERIVATION_PATH, domain_id: 0 } },
+        predecessor: RISK_GUARD_CONTRACT_ID,
+      },
       status: "PREPARED_NOT_BROADCAST",
     };
   }

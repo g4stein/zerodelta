@@ -8,8 +8,15 @@
  *    Guard's X25519 key with nacl.box. Only ciphertext + SHA-256 commitments
  *    are public, so a mempool observer cannot read size or timing.
  * 4. Builds and signs a NEP-413 `token_diff` intent for `intents.near`.
- * 5. Issues a (simulated) TEE attestation binding its code measurement to the
- *    exact intent, envelope and plan.
+ * 5. Derives the raw order legs (integer cents) and the 32-byte hedge payload
+ *    `keccak256(canonical order)` that the Risk Guard contract will recompute
+ *    and that NEAR Chain Signatures will sign, with a fresh anti-replay nonce.
+ * 6. Issues a (simulated) TEE attestation binding its code measurement to the
+ *    exact intent, envelope, plan and hedge payload.
+ *
+ * `compromise: "spoofed_metrics"` simulates a hijacked solver: it reports the
+ * hedged legs, but its encrypted slices spend the whole treasury and its MPC
+ * payload commits to a 10x long. Agent 3 and the contract must catch this.
  */
 import nacl from "tweetnacl";
 import {
@@ -31,6 +38,8 @@ import {
 } from "../crypto/attestation";
 import { bytesToHex, canonicalJson, hashObject, hexToBytes, sha256Hex, toBase64, utf8ToBytes } from "../crypto/encoding";
 import { PAIRS, USDC_DECIMALS, USDC_NEAR_ASSET, type Leg, type RebalancePlan } from "../swarm/types";
+import { computeHedgePayloadHex, nextOrderNonce, orderParamsFromPlan, toCents, type OrderParams } from "../near/orderCommitment";
+import { RISK_GUARD_CONTRACT_ID } from "../near/deployment";
 
 export interface LegQuote {
   legId: string;
@@ -95,6 +104,14 @@ export interface SolverResult {
   attestation: SignedAttestation;
   planHash: string;
   signer: { accountId: string; publicKey: string };
+  /** Raw order legs submitted to the Risk Guard contract (claimed by the solver). */
+  order: OrderParams;
+  /** 32-byte payload (hex) the solver asks NEAR Chain Signatures to sign. */
+  hedgeOrderPayloadHex: string;
+  /** The contract the payload is committed to (domain separation). */
+  commitmentContractId: string;
+  sliceCount: number;
+  compromised: boolean;
 }
 
 let solverEnclave: Enclave | undefined;
@@ -257,6 +274,7 @@ export async function runSolverAgent(input: {
   live: boolean;
   slippageToleranceBps?: number;
   intentTtlMs?: number;
+  compromise?: "spoofed_metrics";
 }): Promise<SolverResult> {
   const { plan, tokens, signer } = input;
   const cfg = PAIRS[plan.pair];
@@ -282,7 +300,8 @@ export async function runSolverAgent(input: {
           leg: marginLeg,
           destinationAsset: marginLeg.assetId!,
           destinationDecimals: USDC_DECIMALS,
-          slices: 1,
+          // The margin bridge is TWAP'd with the same slice count, so reslicing lowers its impact too.
+          slices: input.sliceCount,
           tokens,
           recipient: signer.accountId,
           slippageToleranceBps: tolerance,
@@ -303,9 +322,23 @@ export async function runSolverAgent(input: {
   });
   const executablePlan: RebalancePlan = { ...plan, legs };
   const planHash = hashObject(executablePlan);
+  const maxPriceImpactBps = Math.max(...quotes.map((q) => q.priceImpactBps));
+  const compromised = input.compromise === "spoofed_metrics";
 
-  // Equal TWAP slicing of the spot order.
-  const amountsIn = splitAmount(BigInt(spotQuote.amountIn), input.sliceCount);
+  // Raw order legs + payload commitment (what the contract recomputes and MPC signs).
+  const nonce = nextOrderNonce();
+  const order = orderParamsFromPlan(executablePlan, maxPriceImpactBps, nonce);
+  const hiddenOrder: OrderParams = {
+    ...order,
+    spot_long_usd_cents: toCents(plan.treasuryUsd),
+    perp_short_usd_cents: 0,
+    perp_long_usd_cents: toCents(plan.treasuryUsd * 9),
+  };
+  const hedgeOrderPayloadHex = computeHedgePayloadHex(RISK_GUARD_CONTRACT_ID, compromised ? hiddenOrder : order);
+
+  // Equal TWAP slicing of the spot order. A compromised solver quietly slices the whole treasury.
+  const spotIn = compromised ? BigInt(Math.round(plan.treasuryUsd)) * 10n ** BigInt(USDC_DECIMALS) : BigInt(spotQuote.amountIn);
+  const amountsIn = splitAmount(spotIn, input.sliceCount);
   const minOuts = splitAmount(BigInt(spotQuote.minAmountOut), input.sliceCount);
   const jitterSeed = hexToBytes(sha256Hex(`${plan.planId}:${signer.accountId}`));
   const slices: OrderSlice[] = amountsIn.map((amountIn, i) => ({
@@ -338,17 +371,23 @@ export async function runSolverAgent(input: {
     envelopeHash: envelope.envelopeHash,
     intentPayloadHash: signed.payloadHashHex,
     planHash,
+    hedgeOrderPayloadHex,
   });
   const attestation = signAttestation(enclave, reportData);
 
   return {
     executablePlan,
     quotes,
-    maxPriceImpactBps: Math.max(...quotes.map((q) => q.priceImpactBps)),
+    maxPriceImpactBps,
     envelope,
     intent: { ...signed, message },
     attestation,
     planHash,
     signer: { accountId: signer.accountId, publicKey: signer.publicKey },
+    order,
+    hedgeOrderPayloadHex,
+    commitmentContractId: RISK_GUARD_CONTRACT_ID,
+    sliceCount: input.sliceCount,
+    compromised,
   };
 }

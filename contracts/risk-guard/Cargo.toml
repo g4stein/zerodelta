@@ -1,9 +1,9 @@
 [package]
 name = "zerodelta-risk-guard"
-version = "1.0.0"
+version = "2.0.0"
 edition = "2021"
 rust-version = "1.81"
-description = "ZeroDelta on-chain Risk Guard: stores the delta/leverage/slippage policy and records approved rebalance attestations on NEAR."
+description = "ZeroDelta on-chain Risk Guard: recomputes delta/leverage from raw order legs, binds them to the hedge payload, blocks replays, and is the only path to NEAR Chain Signatures for the treasury's hedge key."
 license = "MIT"
 publish = false
 
@@ -12,6 +12,9 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 near-sdk = "=5.5.0"
+
+[dev-dependencies]
+near-sdk = { version = "=5.5.0", features = ["unit-testing"] }
 
 [profile.release]
 codegen-units = 1
