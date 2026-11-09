@@ -79,10 +79,12 @@ Suggested script (read it out loud or add it as captions):
 | 0:20–0:30 | Slide treasury to $50,000, pick NEAR-PERP / wNEAR | "I'll give it a fifty-thousand-dollar treasury." |
 | 0:30–0:55 | Click the green **Execute Autonomous Delta-Neutral Rebalance** button, then scroll through the three agent cards | "Agent 1 reads live funding rates. Agent 2 gets live quotes, encrypts the order slices, and signs a NEP-413 intent. Agent 3 checks the math: net delta 0.00%, leverage 1x, slippage under 25 basis points. The real intents.near contract accepted the signature." |
 | 0:55–1:00 | Scroll to the proof inspector, show **Signature Verified: TRUE** | "Every signature and hash is shown here." |
+| 0:55–1:00 (cont.) | Click the **On-chain proof (testnet)** tab, then click one of the green Nearblocks links | "And this isn't just in our app. The Risk Guard is a real contract on NEAR testnet. Here's the approved rebalance recorded on-chain, and the real Chain Signatures call where NEAR's MPC network signed the hedge order." |
 | 1:00–1:20 | Click the red **Simulate Rogue AI Directional Gamble** button | "Now a hallucinating AI tries a 10x unhedged long. The cryptography is still valid, but the Risk Guard blocks it on the math: net delta about 1000%, leverage 10x. Nothing is sent and no MPC signature is requested." |
+| 1:20 (cont.) | In the **On-chain proof** tab, point at the orange **FAILURE** row | "The contract itself refuses it too. When the rogue plan was sent on-chain, the transaction failed with ZERODELTA_REJECTED, and you can see it on Nearblocks." |
 | 1:20–1:30 | Back to the top | "ZeroDelta: confidential, delta-neutral, and an AI that can't gamble your treasury. Built at NEAR HACKATHON." |
 
-Keep it under about 2 minutes 20 seconds so it fits on X without a paid account.
+The extra on-chain lines make it about 1 minute 45 seconds. Keep it under about 2 minutes 20 seconds so it fits on X without a paid account.
 
 ---
 
@@ -100,7 +102,7 @@ Built ZeroDelta at NEAR HACKATHON 🛡️⚖️
 • Confidential solver signs NEP-413 intents + encrypts order slices
 • Risk Guard blocks any trade that breaks delta, leverage or slippage limits
 
-Live on intents.near + Chain Signatures.
+Risk Guard deployed on NEAR testnet; live on intents.near + Chain Signatures.
 
 Try it: https://zerodelta.vercel.app
 Code: https://github.com/g4stein/zerodelta

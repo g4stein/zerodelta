@@ -9,3 +9,7 @@ next-env.d.ts
 .DS_Store
 npm-debug.log*
 verify-report.json
+
+# NEAR testnet private keys (never commit)
+.testnet-keys.json
+contracts/risk-guard/target/

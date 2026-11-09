@@ -3,6 +3,7 @@
  * bundled snapshots and quotes from the local fallback model. Live network
  * behaviour is covered by `npm run verify`.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { KeyPair, KeyPairSigner, type KeyPairEd25519 } from "near-api-js";
 import {
@@ -25,12 +26,14 @@ import {
   signAttestation,
   verifyAttestation,
 } from "../src/lib/crypto/attestation";
-import { bytesToHex, canonicalJson, fromBase64, hashObject, sha256Hex, toBase58, toBase64 } from "../src/lib/crypto/encoding";
+import { bytesToHex, canonicalJson, fromBase58, fromBase64, hashObject, sha256Bytes, sha256Hex, toBase58, toBase64 } from "../src/lib/crypto/encoding";
+import { EXPECTED_ONCHAIN_POLICY, TESTNET_PROOF, toOnchainMetrics, verifyMpcSignature } from "../src/lib/near/riskGuardContract";
 import { ONECLICK_TOKEN_SNAPSHOT, evmAddressFromSecp256k1, type OneClickTokenFeed } from "../src/lib/near/rpcClient";
 import { FUNDING_SNAPSHOT, fundingApr, type FundingFeed } from "../src/lib/market/fundingFeed";
 import { buildRogueDirectionalPlan, runScannerAgent } from "../src/lib/agents/scannerAgent";
 import { getSolverEnclave, runSolverAgent, type SolverResult } from "../src/lib/agents/solverAgent";
 import {
+  GUARDIAN_NEAR_ACCOUNT,
   RISK_POLICY,
   computeRiskMetrics,
   evaluateRiskInvariants,
@@ -369,5 +372,54 @@ describe("Input validation and helpers", () => {
     const gy = "483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8";
     const key = `secp256k1:${toBase58(new Uint8Array(Buffer.from(gx + gy, "hex")))}`;
     expect(evmAddressFromSecp256k1(key)).toBe("0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf");
+  });
+});
+
+describe("On-chain testnet proof (offline checks)", () => {
+  it("rounds metrics up into the contract's integer units", () => {
+    expect(toOnchainMetrics({ netDeltaRatio: 0, leverage: 0.9978, maxPriceImpactBps: 1.19 })).toEqual({ net_delta_bps: 0, leverage_x100: 100, slippage_bps: 2 });
+    expect(toOnchainMetrics({ netDeltaRatio: 0.02, leverage: 3, maxPriceImpactBps: 25 })).toEqual({ net_delta_bps: 200, leverage_x100: 300, slippage_bps: 25 });
+    expect(toOnchainMetrics({ netDeltaRatio: 0.02001, leverage: 3.001, maxPriceImpactBps: 25.01 })).toEqual({ net_delta_bps: 201, leverage_x100: 301, slippage_bps: 26 });
+  });
+
+  it("testnet-proof.json describes the deployed contract and four real transactions", () => {
+    expect(TESTNET_PROOF.network).toBe("testnet");
+    expect(TESTNET_PROOF.contract.accountId).toMatch(/^zerodelta-guard-[0-9a-f]{6}\.testnet$/);
+    expect(TESTNET_PROOF.accounts.solver).toMatch(/^zerodelta-solver-[0-9a-f]{6}\.testnet$/);
+    expect(TESTNET_PROOF.contract.policy).toEqual(EXPECTED_ONCHAIN_POLICY);
+    expect(TESTNET_PROOF.transactions.map((t) => t.kind)).toEqual([
+      "DEPLOY_AND_REGISTER_POLICY",
+      "RECORD_APPROVED_REBALANCE",
+      "ROGUE_REBALANCE_REJECTED",
+      "MPC_SIGN_HEDGE",
+    ]);
+    for (const tx of TESTNET_PROOF.transactions) {
+      expect(fromBase58(tx.hash)).toHaveLength(32);
+      expect(tx.explorerUrl).toBe(`https://testnet.nearblocks.io/txns/${tx.hash}`);
+    }
+    expect(JSON.stringify(TESTNET_PROOF)).not.toMatch(/ed25519:[1-9A-HJ-NP-Za-km-z]{80,}|secretKey|private/i);
+  });
+
+  it("committed contract WASM matches the on-chain code hash recorded at deploy time", () => {
+    const wasm = new Uint8Array(readFileSync(TESTNET_PROOF.contract.wasmPath));
+    expect(toBase58(sha256Bytes(wasm))).toBe(TESTNET_PROOF.contract.codeHash);
+    expect(bytesToHex(sha256Bytes(wasm))).toBe(TESTNET_PROOF.contract.wasmSha256Hex);
+  });
+
+  it("the recorded MPC signature recovers to the guard account's derived secp256k1 key", () => {
+    const v = verifyMpcSignature(TESTNET_PROOF.mpcSignature);
+    expect(v).toMatchObject({ valid: true, recoveredMatchesDerivedKey: true, signatureVerifies: true });
+    expect(evmAddressFromSecp256k1(TESTNET_PROOF.mpcSignature.derivedPublicKey)).toBe(TESTNET_PROOF.mpcSignature.evmAddress);
+  });
+
+  it("a tampered MPC signature or payload no longer verifies", () => {
+    const sig = TESTNET_PROOF.mpcSignature;
+    const flip = (hex: string) => (hex[hex.length - 1] === "0" ? hex.slice(0, -1) + "1" : hex.slice(0, -1) + "0");
+    expect(verifyMpcSignature({ ...sig, payloadHex: flip(sig.payloadHex) }).valid).toBe(false);
+    expect(verifyMpcSignature({ ...sig, signature: { ...sig.signature!, s: flip(sig.signature!.s) } }).valid).toBe(false);
+  });
+
+  it("the guardian's Chain Signatures predecessor is the real funded guard account", () => {
+    expect(GUARDIAN_NEAR_ACCOUNT).toBe(TESTNET_PROOF.accounts.guard);
   });
 });

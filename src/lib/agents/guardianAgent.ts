@@ -18,6 +18,7 @@
  */
 import nacl from "tweetnacl";
 import { keyToImplicitAddress } from "near-api-js";
+import testnetProof from "../../../testnet-proof.json";
 import { verifyNep413, INTENTS_CONTRACT, type IntentMessage } from "../near/nep413";
 import { MPC_CONTRACT } from "../near/rpcClient";
 import { EXPECTED_SOLVER_MEASUREMENT, computeReportData, verifyAttestation, type AttestationVerification } from "../crypto/attestation";
@@ -32,7 +33,8 @@ export const RISK_POLICY = {
   attestationMaxAgeMs: 5 * 60_000,
 } as const;
 
-export const GUARDIAN_NEAR_ACCOUNT = "zerodelta-guardian.testnet";
+/** The real, funded testnet Guard account that owns the Risk Guard contract (see testnet-proof.json). */
+export const GUARDIAN_NEAR_ACCOUNT = testnetProof.accounts.guard || "zerodelta-guardian.testnet";
 export const HEDGE_DERIVATION_PATH = "zerodelta/hedge/arbitrum";
 
 export type CheckId =

@@ -28,8 +28,17 @@ import {
   ShieldCheck,
   TriangleAlert,
   Wallet,
+  ExternalLink,
 } from "lucide-react";
-import type { LiveTelemetry } from "@/lib/near/rpcClient";
+import type { LiveTelemetry as BaseTelemetry } from "@/lib/near/rpcClient";
+import type { OnchainProofStatus, TestnetProof } from "@/lib/near/riskGuardContract";
+import proofJson from "../../testnet-proof.json";
+
+/** Public proof data, bundled statically so the links are in the very first HTML response. */
+const PROOF = proofJson as TestnetProof;
+const NEARBLOCKS = "https://testnet.nearblocks.io";
+const nbAccount = (id: string) => `${NEARBLOCKS}/address/${id}`;
+const proofTx = (kind: string) => PROOF.transactions.find((t) => t.kind === kind);
 import type { SwarmRun } from "@/lib/swarm/orchestrator";
 import type { PairId, SwarmMode } from "@/lib/swarm/types";
 import { Badge, Card, CodeBlock, KV, cx, short, usd } from "@/components/ui";
@@ -42,11 +51,12 @@ const PAIR_OPTIONS: { id: PairId; label: string }[] = [
 
 const TRACKS = ["01 / DFI", "03 / PRV", "04 / BUS", "05 / SWM"];
 
-type ProofTab = "intent" | "mpc" | "attestation" | "audit";
+type ProofTab = "intent" | "mpc" | "attestation" | "onchain" | "audit";
+type LiveTelemetry = BaseTelemetry & { onchain?: OnchainProofStatus };
 
 export default function Dashboard() {
   const [telemetry, setTelemetry] = useState<LiveTelemetry | null>(null);
-  const [telemetryLoading, setTelemetryLoading] = useState(false);
+  const [telemetryLoading, setTelemetryLoading] = useState(true);
   const [treasury, setTreasury] = useState(50_000);
   const [pair, setPair] = useState<PairId>("NEAR");
   const [slices, setSlices] = useState(8);
@@ -133,7 +143,7 @@ export default function Dashboard() {
           ) : null}
           <DecisionBanner run={run} running={running} />
           <Pipeline run={run} phase={phase} running={running} />
-          {run ? <ProofInspector run={run} tab={tab} setTab={setTab} /> : null}
+          {run ? <ProofInspector run={run} tab={tab} setTab={setTab} onchain={telemetry?.onchain} /> : null}
         </div>
       </div>
     </main>
@@ -227,45 +237,194 @@ function TelemetryBar({
           icon={<Blocks className="h-3 w-3" />}
           label="Testnet block"
           ok={t?.testnet.live}
-          value={t?.testnet.latestBlockHeight ? `#${t.testnet.latestBlockHeight.toLocaleString()}` : loading ? "…" : "offline"}
+          value={t?.testnet.latestBlockHeight ? `#${t.testnet.latestBlockHeight.toLocaleString()}` : loading ? "loading…" : "offline"}
           sub={t?.testnet.latestBlockHash ? short(t.testnet.latestBlockHash, 10, 6) : undefined}
         />
         <Stat
           icon={<Blocks className="h-3 w-3" />}
           label="Mainnet block"
           ok={t?.mainnet.live}
-          value={t?.mainnet.latestBlockHeight ? `#${t.mainnet.latestBlockHeight.toLocaleString()}` : loading ? "…" : "offline"}
+          value={t?.mainnet.latestBlockHeight ? `#${t.mainnet.latestBlockHeight.toLocaleString()}` : loading ? "loading…" : "offline"}
           sub={t?.mainnet.gasPriceYocto ? `gas ${t.mainnet.gasPriceYocto} yocto` : undefined}
         />
         <Stat
           icon={<Network className="h-3 w-3" />}
           label="intents.near"
           ok={t?.intentsVerifier.exists && t.intentsVerifier.isContract}
-          value={t?.intentsVerifier.exists ? "Verifier live" : loading ? "…" : "unreachable"}
+          value={t?.intentsVerifier.exists ? "Verifier live" : loading ? "loading…" : "unreachable"}
           sub={t?.intentsVerifier.codeHash ? `code ${short(t.intentsVerifier.codeHash, 6, 4)}` : undefined}
         />
         <Stat
           icon={<KeyRound className="h-3 w-3" />}
           label="v1.signer-prod.testnet"
           ok={t?.mpc.live}
-          value={t?.mpc.version ? `MPC v${t.mpc.version}` : loading ? "…" : "unreachable"}
+          value={t?.mpc.version ? `MPC v${t.mpc.version}` : loading ? "loading…" : "unreachable"}
           sub={t?.mpc.signatureDomains !== undefined ? `${t.mpc.signatureDomains} signature domains` : undefined}
         />
         <Stat
           icon={<Coins className="h-3 w-3" />}
           label="1Click tokens"
           ok={t?.oneClick.live}
-          value={t ? `${t.oneClick.count} assets` : "…"}
+          value={t ? `${t.oneClick.count} assets` : loading ? "loading…" : "unavailable"}
           sub={t ? `${t.oneClick.chains.length} chains${t.oneClick.live ? "" : " (snapshot)"}` : undefined}
         />
         <Stat
           icon={<Server className="h-3 w-3" />}
           label="RPC latency"
-          value={t?.testnet.latencyMs !== undefined ? `${t.testnet.latencyMs} ms` : "…"}
+          value={t?.testnet.latencyMs !== undefined ? `${t.testnet.latencyMs} ms` : loading ? "loading…" : "unavailable"}
           sub={t?.testnet.endpoint ? t.testnet.endpoint.replace("https://", "") : undefined}
         />
       </div>
+      <OnchainProofStrip onchain={t?.onchain} />
     </Card>
+  );
+}
+
+function ExplorerLink({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cx("inline-flex items-center gap-1 text-cyan-300 underline-offset-2 transition hover:text-cyan-200 hover:underline", className)}
+    >
+      {children}
+      <ExternalLink className="h-3 w-3 shrink-0" />
+    </a>
+  );
+}
+
+const TX_SHORT: Record<string, string> = {
+  DEPLOY_AND_REGISTER_POLICY: "Deploy + policy",
+  RECORD_APPROVED_REBALANCE: "Approved rebalance",
+  ROGUE_REBALANCE_REJECTED: "Rogue rejected",
+  MPC_SIGN_HEDGE: "MPC sign",
+};
+
+function OnchainProofStrip({ onchain }: { onchain?: OnchainProofStatus }) {
+  const policy = onchain?.guard.policy ?? PROOF.contract.policy;
+  const status = (hash: string) => onchain?.transactions.find((t) => t.hash === hash);
+  return (
+    <div className="mt-2 flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-2 text-xs lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-slate-500">
+          <ShieldCheck className="h-3 w-3 text-emerald-400" /> On-chain Risk Guard (NEAR testnet)
+        </span>
+        <ExplorerLink href={nbAccount(PROOF.contract.accountId)} className="font-mono">
+          {PROOF.contract.accountId}
+        </ExplorerLink>
+        <Badge tone="emerald" className="font-mono">
+          policy {policy.max_delta_bps}/{policy.max_leverage_x100}/{policy.max_slippage_bps}
+        </Badge>
+        {onchain?.guard.attestationCount !== undefined ? (
+          <Badge tone="cyan">
+            {onchain.guard.attestationCount} on-chain attestation{onchain.guard.attestationCount === 1 ? "" : "s"}
+          </Badge>
+        ) : (
+          <Badge tone="slate">{onchain ? "state unavailable" : "verifying…"}</Badge>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-[11px] text-slate-500">Nearblocks Testnet Explorer:</span>
+        {PROOF.transactions.map((tx) => {
+          const v = status(tx.hash);
+          return (
+            <span key={tx.hash} className="flex items-center gap-1" title={v ? v.detail : "verifying on-chain status…"}>
+              <span className={cx("h-1.5 w-1.5 rounded-full", !v ? "bg-slate-500" : v.matchesExpectation ? "bg-emerald-400" : v.found ? "bg-rose-500" : "bg-slate-600")} />
+              <ExplorerLink href={tx.explorerUrl}>{TX_SHORT[tx.kind] ?? tx.kind}</ExplorerLink>
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function OnchainProofPanel({ onchain, run }: { onchain?: OnchainProofStatus; run: SwarmRun }) {
+  const check = run.onchainCheck;
+  if (!onchain) return <div className="text-xs text-slate-500">Loading on-chain proof from NEAR testnet…</div>;
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+          <div className="mb-1 text-[11px] font-semibold text-emerald-300">Deployed Risk Guard contract</div>
+          <KV label="Contract" value={<ExplorerLink href={onchain.contractUrl}>{onchain.contractId}</ExplorerLink>} />
+          <KV label="Owner (guard)" value={<ExplorerLink href={onchain.accounts.guardUrl}>{onchain.accounts.guard}</ExplorerLink>} />
+          <KV label="Solver" value={<ExplorerLink href={onchain.accounts.solverUrl}>{onchain.accounts.solver}</ExplorerLink>} />
+          <KV
+            label="Live policy"
+            value={
+              onchain.guard.policy
+                ? `delta <= ${onchain.guard.policy.max_delta_bps} bps · leverage <= ${onchain.guard.policy.max_leverage_x100 / 100}x · slippage <= ${onchain.guard.policy.max_slippage_bps} bps`
+                : onchain.guard.error ?? "—"
+            }
+          />
+          <KV label="Code hash" value={short(onchain.guard.codeHash, 10, 6)} copy={onchain.guard.codeHash} />
+          <KV label="Matches committed WASM" value={onchain.guard.codeHashMatchesProof ? "TRUE" : "FALSE"} />
+          <KV label="Attestations stored" value={String(onchain.guard.attestationCount ?? "—")} />
+          {onchain.guard.latest ? (
+            <KV label="Latest decision hash" value={short(onchain.guard.latest.decision_hash, 10, 6)} copy={onchain.guard.latest.decision_hash} />
+          ) : null}
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+          <div className="mb-1 text-[11px] font-semibold text-cyan-300">This run, checked by the deployed contract</div>
+          {check ? (
+            check.live ? (
+              <>
+                <KV label="Call" value={`${check.contractId}.check_rebalance`} />
+                <KV label="Args" value={`${check.args.net_delta_bps} bps / ${check.args.leverage_x100} / ${check.args.slippage_bps} bps`} />
+                <KV label="Contract verdict" value={check.approved ? "APPROVED" : "REJECTED"} />
+                <KV label="Agrees with Agent 3" value={check.approved === (run.guardian.decision === "APPROVED") ? "TRUE" : "FALSE"} />
+                {check.violations?.length ? <KV label="Violations" value={check.violations.join("; ")} mono={false} /> : null}
+                <KV label="Block" value={`#${check.blockHeight?.toLocaleString()}`} />
+              </>
+            ) : (
+              <div className="text-xs text-amber-300">Contract unreachable: {check.error}</div>
+            )
+          ) : (
+            <div className="text-xs text-slate-500">Offline run: on-chain check skipped.</div>
+          )}
+          <div className="mt-3 border-t border-slate-800 pt-2">
+            <div className="mb-1 text-[11px] font-semibold text-violet-300">Chain Signatures MPC signature (secp256k1)</div>
+            <KV label="Signer address" value={onchain.mpcSignature.evmAddress} copy={onchain.mpcSignature.evmAddress} />
+            <KV label="Payload (keccak256)" value={short(onchain.mpcSignature.payloadHex, 10, 6)} copy={onchain.mpcSignature.payloadHex} />
+            <KV label="big_r" value={short(onchain.mpcSignature.signature?.big_r, 10, 6)} copy={onchain.mpcSignature.signature?.big_r} />
+            <KV label="Recovers to derived key" value={onchain.mpcSignature.verification.valid ? "TRUE" : "FALSE"} />
+          </div>
+        </div>
+      </div>
+      <div className="space-y-2">
+        {onchain.transactions.map((tx) => (
+          <div
+            key={tx.hash}
+            className={cx(
+              "rounded-lg border px-3 py-2 text-xs",
+              tx.matchesExpectation ? "border-emerald-500/20 bg-emerald-500/5" : "border-rose-500/40 bg-rose-500/10",
+            )}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 font-medium text-slate-200">
+                {tx.matchesExpectation ? <CircleCheck className="h-3.5 w-3.5 text-emerald-400" /> : <CircleX className="h-3.5 w-3.5 text-rose-400" />}
+                {tx.label}
+              </span>
+              <span className="flex items-center gap-2">
+                <Badge tone={tx.onchainStatus === "SUCCESS" ? "emerald" : tx.onchainStatus === "FAILURE" ? "amber" : "slate"}>{tx.onchainStatus}</Badge>
+                <ExplorerLink href={tx.explorerUrl} className="font-mono">
+                  {short(tx.hash, 8, 6)}
+                </ExplorerLink>
+              </span>
+            </div>
+            <div className="mt-1 font-mono text-[10px] text-slate-500">
+              {tx.signerId} {"->"} {tx.receiverId}.{tx.methodName} · {tx.detail}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-slate-500">
+        Transaction statuses are fetched live from a NEAR testnet archival RPC (<span className="font-mono">tx</span>, wait_until FINAL). The rogue transaction is
+        meant to fail: the contract panics with ZERODELTA_REJECTED and stores nothing.
+      </p>
+    </div>
   );
 }
 
@@ -374,15 +533,22 @@ function ControlPanel(props: {
 }
 
 function HonestyPanel() {
-  const rows: [string, string, "emerald" | "amber"][] = [
-    ["NEAR RPC blocks, accounts, MPC contract reads", "Live", "emerald"],
-    ["1Click token list + dry-run quotes", "Live", "emerald"],
-    ["Hyperliquid funding rates", "Live", "emerald"],
-    ["NEP-413 signing + verification", "Real crypto", "emerald"],
-    ["intents.near simulate_intents", "Live mainnet dry-run", "emerald"],
-    ["Chain Signatures derived hedge address", "Live testnet view", "emerald"],
-    ["TEE enclave + attestation", "Software-simulated", "amber"],
-    ["MPC sign() broadcast / real fills", "Prepared, not sent", "amber"],
+  type Row = { label: string; status: string; tone: "emerald" | "amber" | "cyan"; href?: string };
+  const tx = (kind: string) => proofTx(kind)?.explorerUrl;
+  const rows: Row[] = [
+    { label: "NEAR RPC blocks, accounts, MPC contract reads", status: "Live", tone: "emerald" },
+    { label: "1Click token list + dry-run quotes", status: "Live", tone: "emerald" },
+    { label: "Hyperliquid funding rates", status: "Live", tone: "emerald" },
+    { label: "NEP-413 signing + verification", status: "Real crypto", tone: "emerald" },
+    { label: "intents.near simulate_intents", status: "Live mainnet dry-run", tone: "emerald" },
+    { label: "Risk Guard smart contract", status: "Deployed on testnet", tone: "cyan", href: nbAccount(PROOF.contract.accountId) },
+    { label: "Policy registered on-chain (200/300/25)", status: "Testnet tx", tone: "cyan", href: tx("DEPLOY_AND_REGISTER_POLICY") },
+    { label: "Approved rebalance attestation", status: "Testnet tx", tone: "cyan", href: tx("RECORD_APPROVED_REBALANCE") },
+    { label: "Rogue trade rejected by contract", status: "Failed tx (on purpose)", tone: "cyan", href: tx("ROGUE_REBALANCE_REJECTED") },
+    { label: "Chain Signatures sign() via v1.signer-prod.testnet", status: "Testnet tx", tone: "cyan", href: tx("MPC_SIGN_HEDGE") },
+    { label: "Contract verdict on each dashboard run", status: "Live view call", tone: "emerald" },
+    { label: "TEE enclave + attestation", status: "Software-simulated", tone: "amber" },
+    { label: "Real fills / funds movement", status: "None (dry run)", tone: "amber" },
   ];
   return (
     <Card className="p-5">
@@ -390,14 +556,35 @@ function HonestyPanel() {
         <Info className="h-4 w-4 text-cyan-400" /> What is live vs simulated
       </h2>
       <ul className="mt-3 space-y-1.5">
-        {rows.map(([label, status, tone]) => (
-          <li key={label} className="flex items-center justify-between gap-2 text-xs">
-            <span className="text-slate-400">{label}</span>
-            <Badge tone={tone}>{status}</Badge>
+        {rows.map((r) => (
+          <li key={r.label} className="flex items-center justify-between gap-2 text-xs">
+            <span className="text-slate-400">{r.label}</span>
+            {r.href ? (
+              <a href={r.href} target="_blank" rel="noopener noreferrer" className="shrink-0" title="Open on Nearblocks Testnet Explorer">
+                <Badge tone={r.tone} className="hover:brightness-125">
+                  {r.status}
+                  <ExternalLink className="h-3 w-3" />
+                </Badge>
+              </a>
+            ) : (
+              <Badge tone={r.tone} className="shrink-0">
+                {r.status}
+              </Badge>
+            )}
           </li>
         ))}
       </ul>
-      <p className="mt-3 text-[11px] leading-relaxed text-slate-500">No funds move. Every run is a dry run against real contracts and APIs.</p>
+      <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
+        No funds move. Swarm runs are dry runs against real contracts and APIs. The four testnet transactions were sent once by the guard and solver accounts{" "}
+        <a className="text-cyan-300 hover:underline" href={nbAccount(PROOF.accounts.guard)} target="_blank" rel="noopener noreferrer">
+          {PROOF.accounts.guard}
+        </a>{" "}
+        and{" "}
+        <a className="text-cyan-300 hover:underline" href={nbAccount(PROOF.accounts.solver)} target="_blank" rel="noopener noreferrer">
+          {PROOF.accounts.solver}
+        </a>
+        .
+      </p>
     </Card>
   );
 }
@@ -714,6 +901,16 @@ function GuardianView({ run }: { run: SwarmRun }) {
         </div>
       ))}
       <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+        {run.onchainCheck?.live ? (
+          <KV
+            label="Testnet contract verdict"
+            value={
+              <span className={run.onchainCheck.approved ? "text-emerald-300" : "text-rose-300"}>
+                {run.onchainCheck.approved ? "APPROVED" : "REJECTED"} (check_rebalance)
+              </span>
+            }
+          />
+        ) : null}
         <KV label={g.decision === "APPROVED" ? "Approval proof" : "Rejection proof"} value={short(g.decisionHash, 10, 6)} copy={g.decisionHash} />
         <KV label="Guardian signature" value={short(g.guardianSignature, 10, 6)} copy={g.guardianSignature} />
       </div>
@@ -800,7 +997,17 @@ function SettlementView({ run }: { run: SwarmRun }) {
 // Proof inspector
 // ---------------------------------------------------------------------------
 
-function ProofInspector({ run, tab, setTab }: { run: SwarmRun; tab: ProofTab; setTab: (t: ProofTab) => void }) {
+function ProofInspector({
+  run,
+  tab,
+  setTab,
+  onchain,
+}: {
+  run: SwarmRun;
+  tab: ProofTab;
+  setTab: (t: ProofTab) => void;
+  onchain?: OnchainProofStatus;
+}) {
   const s = run.solver;
   const sigCheck = run.guardian.checks.find((c) => c.id === "NEP413_SIGNATURE");
   const sim = run.settlement.simulation;
@@ -808,6 +1015,7 @@ function ProofInspector({ run, tab, setTab }: { run: SwarmRun; tab: ProofTab; se
     { id: "intent", label: "NEP-413 intent" },
     { id: "mpc", label: "MPC sign request" },
     { id: "attestation", label: "TEE attestation" },
+    { id: "onchain", label: "On-chain proof (testnet)" },
     { id: "audit", label: `Audit trail (${run.audit.events.length})` },
   ];
   const nonceHex = s.intent.nonceHex;
@@ -885,6 +1093,7 @@ function ProofInspector({ run, tab, setTab }: { run: SwarmRun; tab: ProofTab; se
             <CodeBlock value={{ verification: run.guardian.attestation, envelope: { ...s.envelope, slices: `${s.envelope.slices.length} ciphertexts` } }} />
           </div>
         ) : null}
+        {tab === "onchain" ? <OnchainProofPanel onchain={onchain} run={run} /> : null}
         {tab === "audit" ? (
           <div className="scrollbar-thin max-h-96 space-y-1 overflow-auto">
             {run.audit.events.map((e) => (

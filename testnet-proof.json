@@ -1,0 +1,105 @@
+{
+  "network": "testnet",
+  "createdAt": "2026-11-09T06:27:30.902Z",
+  "contract": {
+    "accountId": "zerodelta-guard-05eb36.testnet",
+    "codeHash": "7TeTFvS3Pi8Kshxbx9MB41tSyEnxL8g28THd3GroEhw4",
+    "wasmPath": "contracts/risk-guard/res/zerodelta_risk_guard.wasm",
+    "wasmSha256Hex": "5ff9920cef856703d3dabce1e572fef03b582712f4b7d85dc19465cad4947127",
+    "sourcePath": "contracts/risk-guard/src/lib.rs",
+    "policy": {
+      "max_delta_bps": 200,
+      "max_leverage_x100": 300,
+      "max_slippage_bps": 25
+    }
+  },
+  "accounts": {
+    "guard": "zerodelta-guard-05eb36.testnet",
+    "solver": "zerodelta-solver-05eb36.testnet"
+  },
+  "recordedRebalance": {
+    "index": 0,
+    "runId": "d0bb1bb55502",
+    "decisionHash": "64394b8e6b7c972b3f41a1f018ffd7484ca4e96d57894972e8327e26cbd2a992",
+    "planHash": "1d38f0c01e67c11d8e7d55a9abd543ba96dc946661935359ab4015ddf274bcb1",
+    "intentPayloadHash": "bfdb034600acc8a4264d1d05db86d83f4b78982fe40865fe6172afdff5b3f039",
+    "attestationReportHash": "f756b64db9adb85f08a1ba4e79175e9bd01d705aed8c24d9a924bf6fda3808ef",
+    "metrics": {
+      "net_delta_bps": 0,
+      "leverage_x100": 100,
+      "slippage_bps": 2
+    }
+  },
+  "rogueAttempt": {
+    "metrics": {
+      "net_delta_bps": 99943,
+      "leverage_x100": 1000,
+      "slippage_bps": 17
+    },
+    "expectedError": "ZERODELTA_REJECTED"
+  },
+  "mpcSignature": {
+    "contractId": "v1.signer-prod.testnet",
+    "path": "zerodelta/hedge/arbitrum",
+    "domainId": 0,
+    "payloadHex": "2a029078dab0de8638d68603e373a3cdc827a4c2ea9efe6921c913f3544d1d71",
+    "derivedPublicKey": "secp256k1:2T7jDopjWNYCLJJSoBjvQEELUB4wK3RvGvwXn9h7bJSV7X8B5dPi1UBD5YRHb72cED7mA1UHMXF3t9vARozPcjK9",
+    "evmAddress": "0x7554276f90cd495FA3370249dd57cEC7EAa99bF6",
+    "signature": {
+      "big_r": "0327718e40ec236ab5d13f59d57aa6e673cec62a3b5870303bfcae344b1b971b3a",
+      "s": "1d4c8285baf9ac1cf5f112eb801b88945e366325698ca7ea539b59dea72da45d",
+      "recovery_id": 0
+    }
+  },
+  "transactions": [
+    {
+      "kind": "DEPLOY_AND_REGISTER_POLICY",
+      "label": "Deploy Risk Guard contract + register policy",
+      "hash": "4vmYxuUKyYkxqncxrynHnzKzQs361tpmWCBhjt7MVLEv",
+      "signerId": "zerodelta-guard-05eb36.testnet",
+      "receiverId": "zerodelta-guard-05eb36.testnet",
+      "methodName": "new",
+      "expect": "success",
+      "blockHash": "Gz2C98dBduGmdKCZPLJbS5BwvM72L2vQfPDR5MXaA7kN",
+      "explorerUrl": "https://testnet.nearblocks.io/txns/4vmYxuUKyYkxqncxrynHnzKzQs361tpmWCBhjt7MVLEv",
+      "summary": "Deploys the contract and stores max_delta_bps=200, max_leverage_x100=300, max_slippage_bps=25 with the solver account."
+    },
+    {
+      "kind": "RECORD_APPROVED_REBALANCE",
+      "label": "Record approved rebalance attestation",
+      "hash": "CN4PTSCohASuT2bJVirNaPr71AdBZJRbKwJWX3XGdDrq",
+      "signerId": "zerodelta-solver-05eb36.testnet",
+      "receiverId": "zerodelta-guard-05eb36.testnet",
+      "methodName": "record_rebalance",
+      "expect": "success",
+      "blockHash": "Dxkhch3FXL7DAr3FrizdH77UVs74q3LtJF9pBqNi5K2d",
+      "explorerUrl": "https://testnet.nearblocks.io/txns/CN4PTSCohASuT2bJVirNaPr71AdBZJRbKwJWX3XGdDrq",
+      "summary": "Solver records live run d0bb1bb55502: net delta 0 bps, leverage 1x, slippage 2 bps, decision 64394b8e6b7c…"
+    },
+    {
+      "kind": "ROGUE_REBALANCE_REJECTED",
+      "label": "Rogue 10x plan rejected on-chain",
+      "hash": "Chi8iDjP7DEeiqNF2tB7nMBo8UKKcFjyKrFsAyWNumob",
+      "signerId": "zerodelta-solver-05eb36.testnet",
+      "receiverId": "zerodelta-guard-05eb36.testnet",
+      "methodName": "record_rebalance",
+      "expect": "failure",
+      "expectedError": "ZERODELTA_REJECTED",
+      "blockHash": "9jbaw14e6PSV3czQ3Zfs1MgsndrCtADFZwcNV748uveu",
+      "explorerUrl": "https://testnet.nearblocks.io/txns/Chi8iDjP7DEeiqNF2tB7nMBo8UKKcFjyKrFsAyWNumob",
+      "summary": "Solver submits the rogue plan (net delta 99943 bps, leverage 10x). The contract panics with ZERODELTA_REJECTED and stores nothing."
+    },
+    {
+      "kind": "MPC_SIGN_HEDGE",
+      "label": "Chain Signatures: MPC signs approved hedge order",
+      "hash": "HnG4r4Cq5S2rNARdjBPPKqGQS9F116QYmLhTTTtGWTX9",
+      "signerId": "zerodelta-guard-05eb36.testnet",
+      "receiverId": "v1.signer-prod.testnet",
+      "methodName": "sign",
+      "expect": "success",
+      "blockHash": "7RQvmYZ5QKowqQ4xes447VkLD5dcgThmEg7LXxRYDHTL",
+      "explorerUrl": "https://testnet.nearblocks.io/txns/HnG4r4Cq5S2rNARdjBPPKqGQS9F116QYmLhTTTtGWTX9",
+      "summary": "Guard account asks the NEAR MPC network to sign keccak256(hedge order) at path zerodelta/hedge/arbitrum; signer address 0x7554276f90cd495FA3370249dd57cEC7EAa99bF6."
+    }
+  ]
+}
