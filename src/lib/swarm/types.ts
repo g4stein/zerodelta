@@ -1,7 +1,15 @@
 /** Shared domain types for the ZeroDelta 3-agent swarm. */
 
-export type PairId = "NEAR" | "SOL" | "ETH";
-export type SwarmMode = "rebalance" | "rogue";
+export type PairId = "NEAR" | "SOL" | "ETH" | "BTC";
+/** "AUTO" lets Agent 1 pick the best net-of-cost carry across every candidate. */
+export type PairSelection = PairId | "AUTO";
+/**
+ * rebalance        normal autonomous run
+ * rogue            a hallucinating planner injects an unhedged 10x long
+ * spoofed_metrics  a compromised solver reports hedged legs but hides a 10x order in its slices and MPC payload
+ */
+export type SwarmMode = "rebalance" | "rogue" | "spoofed_metrics";
+export const PAIR_IDS: PairId[] = ["NEAR", "SOL", "ETH", "BTC"];
 
 export interface PairConfig {
   id: PairId;
@@ -50,6 +58,16 @@ export const PAIRS: Record<PairId, PairConfig> = {
     spotChain: "arb",
     spotChainLabel: "Arbitrum",
   },
+  BTC: {
+    id: "BTC",
+    label: "BTC-PERP / nBTC",
+    perpSymbol: "BTC",
+    spotSymbol: "BTC",
+    spotAssetId: "nep141:nbtc.bridge.near",
+    spotDecimals: 8,
+    spotChain: "near",
+    spotChainLabel: "NEAR (nBTC)",
+  },
 };
 
 export type LegKind = "SPOT" | "PERP" | "MARGIN";
@@ -82,8 +100,10 @@ export interface RebalancePlan {
 export interface SwarmRequest {
   mode: SwarmMode;
   treasuryUsd: number;
-  pair: PairId;
-  sliceCount: number;
+  /** A specific pair (manual override) or "AUTO" (Agent 1 ranks every candidate). */
+  pair: PairSelection;
+  /** Initial TWAP slice count, or "auto" to let Agent 1 size it from live liquidity. */
+  sliceCount: number | "auto";
 }
 
 export const LIMITS = {
@@ -93,18 +113,21 @@ export const LIMITS = {
   sliceMax: 24,
 } as const;
 
+const MODES: SwarmMode[] = ["rebalance", "rogue", "spoofed_metrics"];
+
 /** Validates and clamps untrusted input coming from the HTTP API. */
 export function parseSwarmRequest(input: unknown): SwarmRequest {
   const body = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
-  const mode: SwarmMode = body.mode === "rogue" ? "rogue" : "rebalance";
-  const pair: PairId = body.pair === "SOL" || body.pair === "ETH" ? body.pair : "NEAR";
+  const mode: SwarmMode = MODES.includes(body.mode as SwarmMode) ? (body.mode as SwarmMode) : "rebalance";
+  const pair: PairSelection = PAIR_IDS.includes(body.pair as PairId) ? (body.pair as PairId) : "AUTO";
   const treasuryRaw = Number(body.treasuryUsd ?? 50_000);
-  const sliceRaw = Number(body.sliceCount ?? 8);
   const treasuryUsd = Number.isFinite(treasuryRaw)
     ? Math.min(LIMITS.treasuryMaxUsd, Math.max(LIMITS.treasuryMinUsd, Math.round(treasuryRaw)))
     : 50_000;
-  const sliceCount = Number.isFinite(sliceRaw)
-    ? Math.min(LIMITS.sliceMax, Math.max(LIMITS.sliceMin, Math.round(sliceRaw)))
-    : 8;
+  let sliceCount: number | "auto" = "auto";
+  if (body.sliceCount !== undefined && body.sliceCount !== "auto") {
+    const sliceRaw = Number(body.sliceCount);
+    sliceCount = Number.isFinite(sliceRaw) ? Math.min(LIMITS.sliceMax, Math.max(LIMITS.sliceMin, Math.round(sliceRaw))) : "auto";
+  }
   return { mode, pair, treasuryUsd, sliceCount };
 }

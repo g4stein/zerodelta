@@ -74,17 +74,15 @@ Suggested script (read it out loud or add it as captions):
 
 | Time | What to show | What to say |
 |---|---|---|
-| 0:00–0:10 | The top of the dashboard | "This is ZeroDelta: three AI agents that run a delta-neutral treasury on NEAR without ever getting unchecked control of the money." |
-| 0:10–0:20 | Point at the live telemetry bar | "These numbers are live: the NEAR testnet block, the real intents.near contract, the Chain Signatures MPC contract, and 216 tokens from the NEAR Intents 1Click API." |
-| 0:20–0:30 | Slide treasury to $50,000, pick NEAR-PERP / wNEAR | "I'll give it a fifty-thousand-dollar treasury." |
-| 0:30–0:55 | Click the green **Execute Autonomous Delta-Neutral Rebalance** button, then scroll through the three agent cards | "Agent 1 reads live funding rates. Agent 2 gets live quotes, encrypts the order slices, and signs a NEP-413 intent. Agent 3 checks the math: net delta 0.00%, leverage 1x, slippage under 25 basis points. The real intents.near contract accepted the signature." |
-| 0:55–1:00 | Scroll to the proof inspector, show **Signature Verified: TRUE** | "Every signature and hash is shown here." |
-| 0:55–1:00 (cont.) | Click the **On-chain proof (testnet)** tab, then click one of the green Nearblocks links | "And this isn't just in our app. The Risk Guard is a real contract on NEAR testnet. Here's the approved rebalance recorded on-chain, and the real Chain Signatures call where NEAR's MPC network signed the hedge order." |
-| 1:00–1:20 | Click the red **Simulate Rogue AI Directional Gamble** button | "Now a hallucinating AI tries a 10x unhedged long. The cryptography is still valid, but the Risk Guard blocks it on the math: net delta about 1000%, leverage 10x. Nothing is sent and no MPC signature is requested." |
-| 1:20 (cont.) | In the **On-chain proof** tab, point at the orange **FAILURE** row | "The contract itself refuses it too. When the rogue plan was sent on-chain, the transaction failed with ZERODELTA_REJECTED, and you can see it on Nearblocks." |
-| 1:20–1:30 | Back to the top | "ZeroDelta: confidential, delta-neutral, and an AI that can't gamble your treasury. Built at NEAR HACKATHON." |
+| 0:00–0:10 | The top of the dashboard | "This is ZeroDelta: AI agents that run a delta-neutral treasury on NEAR, where a locked smart contract is the only thing that can use the treasury's signing key." |
+| 0:10–0:20 | Point at the telemetry bar and the on-chain Risk Guard row | "These numbers are live: NEAR blocks, intents.near, the Chain Signatures MPC contract, and our Risk Guard contract on testnet, locked with zero access keys." |
+| 0:20–0:45 | Leave the pair on **Auto**, click the green **Execute Autonomous Delta-Neutral Rebalance** button, then scroll to Agent 1's table and Agent 2's negotiation box | "Agent 1 ranks NEAR, Solana, Ethereum and Bitcoin by funding minus live trading costs and picks the winner. Agent 2 quotes live, and if slippage is too high the two agents renegotiate the slice count." |
+| 0:45–0:60 | Scroll to Agent 3 and the proof inspector, open **On-chain proof (testnet)**, click the green "Approved + MPC sign" link | "Agent 3 checks eight rules, and the deployed contract recomputes the same order itself. Here's the real testnet transaction where the contract, not a person, asked NEAR's MPC network to sign." |
+| 1:00–1:12 | Click the red **Simulate Rogue AI Directional Gamble** button | "A hallucinating AI tries a 10x unhedged long. Blocked on the math: about 1000% net delta, 10x leverage." |
+| 1:12–1:25 | Click the amber **Simulate Compromised Solver** button, then point at the FAILURE rows in the On-chain proof tab | "Now the solver itself lies: it reports a hedged order but hides a 10x one in what it asks MPC to sign. The fingerprint doesn't match, so it's blocked here and on-chain too. Replays fail as well." |
+| 1:25–1:30 | Back to the top | "ZeroDelta: an AI treasury that can't gamble or forge its way past the rules. Built at NEAR HACKATHON." |
 
-The extra on-chain lines make it about 1 minute 45 seconds. Keep it under about 2 minutes 20 seconds so it fits on X without a paid account.
+Keep it under about 2 minutes 20 seconds so it fits on X without a paid account.
 
 ---
 
@@ -92,17 +90,12 @@ The extra on-chain lines make it about 1 minute 45 seconds. Keep it under about 
 
 1. Go to [x.com](https://x.com) and start a new post.
 2. Attach your video (or 2–4 screenshots).
-3. Paste this text exactly as it is. Your links are already filled in:
+3. Paste this text exactly as it is. Your links are already filled in, and it fits X's 280-character limit:
 
 ```
-Built ZeroDelta at NEAR HACKATHON 🛡️⚖️
+Built ZeroDelta at NEAR HACKATHON 🛡️
 
-3 AI agents run a delta-neutral treasury on NEAR:
-• Scanner reads live funding
-• Confidential solver signs NEP-413 intents + encrypts order slices
-• Risk Guard blocks any trade that breaks delta, leverage or slippage limits
-
-Risk Guard deployed on NEAR testnet; live on intents.near + Chain Signatures.
+AI agents run a delta-neutral treasury. A locked NEAR contract is the only path to its signing key, so rogue and spoofed trades fail on-chain.
 
 Try it: https://zerodelta.vercel.app
 Code: https://github.com/g4stein/zerodelta
@@ -123,7 +116,7 @@ Code: https://github.com/g4stein/zerodelta
    - **Repository link:** `https://github.com/g4stein/zerodelta`
    - **Live demo link** (if the form has a field for it): `https://zerodelta.vercel.app`
    - **Demo post link:** your X post link from Step 4.
-   - **Tracks:** tick all that apply. ZeroDelta was built for **01 / DFI Unstoppable DeFi**, **03 / PRV Privacy & Private AI**, **04 / BUS Autonomous Business** and **05 / SWM AI Swarms**. It also fits **06 / SEC AI Security & Defense** (policy engine + TEE attestation), so consider ticking that too.
+   - **Tracks:** tick all six: **01 / DFI Unstoppable DeFi**, **03 / PRV Privacy & Private AI**, **04 / BUS Autonomous Business**, **05 / SWM AI Swarms**, **06 / SEC AI Security & Defense** and **07 / AGT Agent Economy**. The README's track table explains how each one fits.
    - **NEAR account address:** where a prize would be paid. If you don't have one, create a free wallet at [wallet.near.org](https://wallet.near.org) or [meteorwallet.app](https://meteorwallet.app) and copy your account name (for example `yourname.near`). Never share your seed phrase or private key; the form only needs the address.
    - **Email** and any other fields the form asks for.
 3. Click submit.
@@ -143,7 +136,7 @@ npm run verify
 npm run build
 ```
 
-All four were run successfully before handover. `npm run verify` makes real calls to NEAR and should print `ALL CHECKS PASSED`. You don't have to do anything for this, but don't delete files from the repository.
+All four (plus the contract's own `cargo test`) were run successfully before handover. `npm run verify` makes real calls to NEAR and should print `ALL CHECKS PASSED`. You don't have to do anything for this, but don't delete files from the repository.
 
 ## Quick checklist
 

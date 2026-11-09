@@ -1,22 +1,31 @@
 /**
- * On-chain layer for the deployed ZeroDelta Risk Guard contract on NEAR testnet.
+ * On-chain layer for the deployed ZeroDelta Risk Guard v2 contract on NEAR testnet.
  *
- * - Converts guardian metrics to the contract's integer units.
- * - Reads the live contract (policy, attestations, free `check_rebalance` view).
- * - Re-verifies the proof transactions in `testnet-proof.json` against a NEAR
- *   archival RPC (`tx` method with `wait_until: FINAL`), so old transactions stay
- *   checkable after regular nodes garbage-collect them.
+ * - Reads the live contract (config, attestations, lock status).
+ * - Runs the contract's own checks on any order (`check_order_params`, free view).
+ * - Re-verifies every proof transaction in `testnet-proof.json` with
+ *   `EXPERIMENTAL_tx_status` on a NEAR archival RPC, including the receipt in which
+ *   the contract itself (not a person) calls `v1.signer-prod.testnet.sign`.
+ * - Recovers the MPC secp256k1 signature offline and checks it belongs to the key
+ *   derived for the contract account.
  */
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import proofJson from "../../../testnet-proof.json";
-import { fetchWithTimeout, nearRpc, viewFunction, MPC_CONTRACT } from "./rpcClient";
+import { fetchWithTimeout, nearRpc, viewFunction } from "./rpcClient";
 import { fromBase58, hexToBytes } from "../crypto/encoding";
-import type { RiskMetrics } from "../agents/guardianAgent";
+import { MPC_SIGNER_CONTRACT, RISK_GUARD_CONTRACT_ID } from "./deployment";
+import type { OrderParams } from "./orderCommitment";
 
 export const NEARBLOCKS_TESTNET = "https://testnet.nearblocks.io";
 export const TESTNET_ARCHIVAL_RPC = ["https://archival-rpc.testnet.near.org", "https://archival-rpc.testnet.fastnear.com"];
+export const MPC_CONTRACT = MPC_SIGNER_CONTRACT;
 
-export type ProofTxKind = "DEPLOY_AND_REGISTER_POLICY" | "RECORD_APPROVED_REBALANCE" | "ROGUE_REBALANCE_REJECTED" | "MPC_SIGN_HEDGE";
+export type ProofTxKind =
+  | "DEPLOY_REGISTER_AND_LOCK"
+  | "RECORD_AND_SIGN_APPROVED_REBALANCE"
+  | "ROGUE_REBALANCE_REJECTED"
+  | "PAYLOAD_SWAP_REJECTED"
+  | "REPLAY_REJECTED";
 
 export interface ProofTx {
   kind: ProofTxKind;
@@ -25,46 +34,14 @@ export interface ProofTx {
   signerId: string;
   receiverId: string;
   methodName: string;
-  /** "success" = transaction must succeed; "failure" = must fail with `expectedError`. */
+  /** "success" = must succeed; "failure" = must fail with `expectedError`. */
   expect: "success" | "failure";
   expectedError?: string;
+  /** A receipt that must exist (used to prove the contract itself called the MPC signer). */
+  expectedReceipt?: { predecessorId: string; receiverId: string; methodName: string };
   blockHash?: string;
   explorerUrl: string;
   summary: string;
-}
-
-export interface TestnetProof {
-  network: "testnet";
-  createdAt: string;
-  contract: {
-    accountId: string;
-    codeHash: string;
-    wasmPath: string;
-    wasmSha256Hex: string;
-    sourcePath: string;
-    policy: OnchainPolicy;
-  };
-  accounts: { guard: string; solver: string };
-  recordedRebalance: {
-    index: number;
-    runId: string;
-    decisionHash: string;
-    planHash: string;
-    intentPayloadHash: string;
-    attestationReportHash: string;
-    metrics: OnchainMetrics;
-  };
-  rogueAttempt: { metrics: OnchainMetrics; expectedError: string };
-  mpcSignature: {
-    contractId: string;
-    path: string;
-    domainId: number;
-    payloadHex: string;
-    derivedPublicKey: string;
-    evmAddress: string;
-    signature: { big_r: string; s: string; recovery_id: number } | null;
-  };
-  transactions: ProofTx[];
 }
 
 export interface OnchainPolicy {
@@ -73,30 +50,62 @@ export interface OnchainPolicy {
   max_slippage_bps: number;
 }
 
-export interface OnchainMetrics {
-  net_delta_bps: number;
-  leverage_x100: number;
-  slippage_bps: number;
+export interface MpcSignatureRecord {
+  big_r: string;
+  s: string;
+  recovery_id: number;
 }
 
-export const TESTNET_PROOF = proofJson as TestnetProof;
-export const RISK_GUARD_CONTRACT = TESTNET_PROOF.contract.accountId;
+export interface TestnetProof {
+  network: "testnet";
+  version: number;
+  createdAt: string;
+  contract: {
+    accountId: string;
+    codeHash: string;
+    wasmPath: string;
+    wasmSha256Hex: string;
+    sourcePath: string;
+    policy: OnchainPolicy;
+    mpcSignerContract: string;
+    mpcPath: string;
+    locked: boolean;
+  };
+  accounts: { guard: string; solver: string };
+  approvedOrder: {
+    index: number;
+    runId: string;
+    order: OrderParams;
+    hedgeOrderPayloadHex: string;
+    decisionHash: string;
+    planHash: string;
+    intentPayloadHash: string;
+    attestationReportHash: string;
+    contractMetrics: { net_delta_bps: number; leverage_x100: number };
+  };
+  rogueAttempt: { order: OrderParams; hedgeOrderPayloadHex: string; expectedError: string };
+  payloadSwapAttempt: { order: OrderParams; hedgeOrderPayloadHex: string; expectedError: string };
+  replayAttempt: { nonce: number; expectedError: string };
+  mpcSignature: {
+    contractId: string;
+    path: string;
+    domainId: number;
+    payloadHex: string;
+    predecessor: string;
+    derivedPublicKey: string;
+    evmAddress: string;
+    signature: MpcSignatureRecord | null;
+  };
+  transactions: ProofTx[];
+  previousDeployment?: { version: number; contract: string; solver: string; note: string; transactions: string[] };
+}
 
+export const TESTNET_PROOF = proofJson as unknown as TestnetProof;
+export const RISK_GUARD_CONTRACT = RISK_GUARD_CONTRACT_ID;
 export const EXPECTED_ONCHAIN_POLICY: OnchainPolicy = { max_delta_bps: 200, max_leverage_x100: 300, max_slippage_bps: 25 };
 
 export const nearblocksTx = (hash: string) => `${NEARBLOCKS_TESTNET}/txns/${hash}`;
 export const nearblocksAccount = (accountId: string) => `${NEARBLOCKS_TESTNET}/address/${accountId}`;
-
-/** Rounds every metric UP so the on-chain check is never looser than the off-chain one. */
-export function toOnchainMetrics(m: Pick<RiskMetrics, "netDeltaRatio" | "leverage" | "maxPriceImpactBps">): OnchainMetrics {
-  // Contract fields are u32: clamp to >= 0 (also turns -0 into 0). The epsilon absorbs float noise.
-  const up = (x: number) => Math.max(0, Math.ceil(x - 1e-9)) + 0;
-  return {
-    net_delta_bps: up(m.netDeltaRatio * 10_000),
-    leverage_x100: up(m.leverage * 100),
-    slippage_bps: up(m.maxPriceImpactBps),
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Chain Signatures: verify the MPC network's ECDSA signature offline
@@ -110,11 +119,10 @@ export interface MpcSignatureVerification {
 }
 
 /**
- * Recovers the secp256k1 public key from the MPC signature (big_r, s, recovery_id) over
- * the hedge-order digest and checks it equals the key `derived_public_key` returns for
- * the guard account. Pure local cryptography, no network.
+ * Recovers the secp256k1 public key from (big_r, s, recovery_id) over the payload and
+ * checks it equals the key `derived_public_key` returns for the contract account.
  */
-export function verifyMpcSignature(sig: TestnetProof["mpcSignature"]): MpcSignatureVerification {
+export function verifyMpcSignature(sig: Pick<TestnetProof["mpcSignature"], "signature" | "payloadHex" | "derivedPublicKey">): MpcSignatureVerification {
   const fail = (reason: string) => ({ valid: false, recoveredMatchesDerivedKey: false, signatureVerifies: false, reason });
   if (!sig.signature) return fail("no signature recorded");
   try {
@@ -137,14 +145,23 @@ export function verifyMpcSignature(sig: TestnetProof["mpcSignature"]): MpcSignat
 // Live contract reads
 // ---------------------------------------------------------------------------
 
+export interface OnchainConfig {
+  solver: string;
+  policy: OnchainPolicy;
+  mpc_signer_contract: string;
+  mpc_path: string;
+  last_nonce: number;
+  attestation_count: number;
+  version: string;
+}
+
 export interface OnchainAttestation {
   index: number;
   run_id: string;
-  pair: string;
-  treasury_usd: number;
+  order: OrderParams;
   net_delta_bps: number;
   leverage_x100: number;
-  slippage_bps: number;
+  hedge_order_payload_hex: string;
   plan_hash: string;
   intent_payload_hash: string;
   attestation_report_hash: string;
@@ -152,79 +169,136 @@ export interface OnchainAttestation {
   recorded_by: string;
   block_height: number;
   timestamp_ns: number;
+  mpc_status: "NotRequested" | "Pending" | "Signed" | "Failed";
+  mpc_signature: MpcSignatureRecord | null;
 }
 
 export interface OnchainGuardState {
   live: boolean;
   contractId: string;
   explorerUrl: string;
+  config?: OnchainConfig;
   policy?: OnchainPolicy;
-  owner?: string;
   solver?: string;
   attestationCount?: number;
   latest?: OnchainAttestation | null;
   codeHash?: string;
   codeHashMatchesProof?: boolean;
+  /** True when the contract account has zero access keys: only its own code can act as it. */
+  locked?: boolean;
+  accessKeyCount?: number;
   error?: string;
+}
+
+export async function getAccessKeyCount(accountId: string): Promise<number | undefined> {
+  const r = await nearRpc<{ keys: unknown[] }>("testnet", "query", { request_type: "view_access_key_list", finality: "final", account_id: accountId });
+  return r.ok ? r.result.keys.length : undefined;
 }
 
 export async function getOnchainGuardState(): Promise<OnchainGuardState> {
   const base = { contractId: RISK_GUARD_CONTRACT, explorerUrl: nearblocksAccount(RISK_GUARD_CONTRACT) };
-  const [config, count, account] = await Promise.all([
-    viewFunction<[string, string, OnchainPolicy]>("testnet", RISK_GUARD_CONTRACT, "get_config"),
-    viewFunction<number>("testnet", RISK_GUARD_CONTRACT, "get_attestation_count"),
+  const [config, account, keyCount] = await Promise.all([
+    viewFunction<OnchainConfig>("testnet", RISK_GUARD_CONTRACT, "get_config"),
     nearRpc<{ code_hash: string }>("testnet", "query", { request_type: "view_account", finality: "final", account_id: RISK_GUARD_CONTRACT }),
+    getAccessKeyCount(RISK_GUARD_CONTRACT),
   ]);
   if (!config.ok) return { ...base, live: false, error: config.error };
-  const attestationCount = count.ok ? count.value : undefined;
+  const count = config.value.attestation_count;
   let latest: OnchainAttestation | null = null;
-  if (attestationCount && attestationCount > 0) {
-    const r = await viewFunction<OnchainAttestation | null>("testnet", RISK_GUARD_CONTRACT, "get_attestation", { index: attestationCount - 1 });
+  if (count > 0) {
+    const r = await viewFunction<OnchainAttestation | null>("testnet", RISK_GUARD_CONTRACT, "get_attestation", { index: count - 1 });
     latest = r.ok ? r.value : null;
   }
   const codeHash = account.ok ? account.result.code_hash : undefined;
   return {
     ...base,
     live: true,
-    owner: config.value[0],
-    solver: config.value[1],
-    policy: config.value[2],
-    attestationCount,
+    config: config.value,
+    policy: config.value.policy,
+    solver: config.value.solver,
+    attestationCount: count,
     latest,
     codeHash,
     codeHashMatchesProof: codeHash ? codeHash === TESTNET_PROOF.contract.codeHash : undefined,
+    accessKeyCount: keyCount,
+    locked: keyCount === undefined ? undefined : keyCount === 0,
   };
 }
 
-export interface OnchainPolicyCheck {
+export async function getOnchainLastNonce(): Promise<number | null> {
+  const r = await viewFunction<number>("testnet", RISK_GUARD_CONTRACT, "get_last_nonce");
+  return r.ok ? r.value : null;
+}
+
+export interface OnchainOrderCheck {
   live: boolean;
   contractId: string;
-  method: "check_rebalance";
-  args: OnchainMetrics;
+  method: "check_order_params";
+  order: OrderParams;
+  payloadHex: string;
   approved?: boolean;
+  netDeltaBps?: number;
+  leverageX100?: number;
+  expectedPayloadHex?: string;
+  payloadMatches?: boolean;
+  nonceFresh?: boolean;
   violations?: string[];
   blockHeight?: number;
   error?: string;
 }
 
-/** Runs the deployed contract's own policy logic (free view call) on a set of metrics. */
-export async function checkRebalanceOnchain(metrics: OnchainMetrics): Promise<OnchainPolicyCheck> {
-  const base = { contractId: RISK_GUARD_CONTRACT, method: "check_rebalance" as const, args: metrics };
-  const r = await viewFunction<{ approved: boolean; violations: string[] }>("testnet", RISK_GUARD_CONTRACT, "check_rebalance", metrics);
-  if (!r.ok) return { ...base, live: false, error: r.error };
-  return { ...base, live: true, approved: r.value.approved, violations: r.value.violations, blockHeight: r.blockHeight };
+interface RawEvaluation {
+  approved: boolean;
+  net_delta_bps: number;
+  leverage_x100: number;
+  slippage_bps: number;
+  expected_payload_hex: string;
+  payload_matches: boolean;
+  nonce_fresh: boolean;
+  violations: string[];
+}
+
+/** The deployed contract recomputes metrics + commitment for this order (free view call). */
+export async function checkOrderOnchain(order: OrderParams, payloadHex: string): Promise<OnchainOrderCheck> {
+  const base = { contractId: RISK_GUARD_CONTRACT, method: "check_order_params" as const, order, payloadHex };
+  const r = await viewFunction<RawEvaluation>("testnet", RISK_GUARD_CONTRACT, "check_order_params", { order, hedge_order_payload_hex: payloadHex });
+  if (!r.ok) return { ...base, live: false, error: r.contractPanic ?? r.error };
+  return {
+    ...base,
+    live: true,
+    approved: r.value.approved,
+    netDeltaBps: r.value.net_delta_bps,
+    leverageX100: r.value.leverage_x100,
+    expectedPayloadHex: r.value.expected_payload_hex,
+    payloadMatches: r.value.payload_matches,
+    nonceFresh: r.value.nonce_fresh,
+    violations: r.value.violations,
+    blockHeight: r.blockHeight,
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Transaction status verification
 // ---------------------------------------------------------------------------
 
+type ExecStatus = { SuccessValue?: string; SuccessReceiptId?: string; Failure?: unknown };
+interface RpcFunctionCall {
+  FunctionCall?: { method_name: string };
+}
 interface RpcTxStatus {
   final_execution_status?: string;
-  status: { SuccessValue?: string; Failure?: unknown };
-  transaction: { hash: string; signer_id: string; receiver_id: string; actions: unknown[] };
+  status: ExecStatus;
+  transaction: { hash: string; signer_id: string; receiver_id: string; actions: (RpcFunctionCall | string | Record<string, unknown>)[] };
   transaction_outcome: { block_hash: string };
-  receipts_outcome: { outcome: { status: { SuccessValue?: string; Failure?: unknown }; logs: string[] } }[];
+  receipts_outcome: { id: string; outcome: { executor_id: string; status: ExecStatus; logs: string[] } }[];
+  receipts?: { receipt_id: string; predecessor_id: string; receiver_id: string; receipt: { Action?: { actions: RpcFunctionCall[] } } }[];
+}
+
+export interface ReceiptSummary {
+  predecessorId: string;
+  receiverId: string;
+  methodName?: string;
+  status: "SUCCESS" | "FAILURE" | "UNKNOWN";
 }
 
 export interface TxVerification {
@@ -241,6 +315,9 @@ export interface TxVerification {
   finality?: string;
   returnValue?: string;
   errorMessage?: string;
+  receipts: ReceiptSummary[];
+  /** For the guard-gated sign tx: the receipt where the contract calls the MPC signer. */
+  gateReceipt?: ReceiptSummary;
   logs: string[];
   endpoint?: string;
   detail: string;
@@ -255,16 +332,14 @@ function decodeSuccessValue(b64: string | undefined): string | undefined {
   }
 }
 
-function extractMethodName(actions: unknown[]): string | undefined {
-  for (const a of actions) {
-    if (a && typeof a === "object" && "FunctionCall" in a) {
-      return (a as { FunctionCall: { method_name: string } }).FunctionCall.method_name;
-    }
+function methodOf(actions: unknown[] | undefined): string | undefined {
+  for (const a of actions ?? []) {
+    if (a && typeof a === "object" && "FunctionCall" in a) return (a as { FunctionCall: { method_name: string } }).FunctionCall.method_name;
   }
   return undefined;
 }
 
-/** `tx` RPC with `wait_until: FINAL` against archival endpoints, then the regular endpoint. */
+/** `EXPERIMENTAL_tx_status` (includes receipts + predecessors) on archival endpoints, then the regular RPC. */
 export async function fetchTxStatus(hash: string, senderAccountId: string): Promise<{ ok: true; result: RpcTxStatus; endpoint: string } | { ok: false; error: string }> {
   const errors: string[] = [];
   for (const endpoint of [...TESTNET_ARCHIVAL_RPC, "https://rpc.testnet.near.org"]) {
@@ -274,9 +349,9 @@ export async function fetchTxStatus(hash: string, senderAccountId: string): Prom
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ jsonrpc: "2.0", id: "zerodelta", method: "tx", params: { tx_hash: hash, sender_account_id: senderAccountId, wait_until: "FINAL" } }),
+          body: JSON.stringify({ jsonrpc: "2.0", id: "zerodelta", method: "EXPERIMENTAL_tx_status", params: { tx_hash: hash, sender_account_id: senderAccountId, wait_until: "FINAL" } }),
         },
-        12_000,
+        15_000,
       );
       const body = (await res.json()) as { result?: RpcTxStatus; error?: { cause?: { name?: string }; message?: string } };
       if (body.result) return { ok: true, result: body.result, endpoint };
@@ -289,23 +364,40 @@ export async function fetchTxStatus(hash: string, senderAccountId: string): Prom
 }
 
 export async function verifyProofTx(tx: ProofTx): Promise<TxVerification> {
-  const base = { kind: tx.kind, label: tx.label, hash: tx.hash, explorerUrl: tx.explorerUrl, logs: [] as string[] };
+  const base = { kind: tx.kind, label: tx.label, hash: tx.hash, explorerUrl: tx.explorerUrl, logs: [] as string[], receipts: [] as ReceiptSummary[] };
   const r = await fetchTxStatus(tx.hash, tx.signerId);
-  if (!r.ok) {
-    return { ...base, found: false, matchesExpectation: false, onchainStatus: "NOT_FOUND", detail: r.error };
-  }
+  if (!r.ok) return { ...base, found: false, matchesExpectation: false, onchainStatus: "NOT_FOUND", detail: r.error };
   const t = r.result;
   const failed = t.status.Failure !== undefined;
   const errorMessage = failed ? JSON.stringify(t.status.Failure) : undefined;
   const logs = t.receipts_outcome.flatMap((o) => o.outcome.logs);
-  const methodName = extractMethodName(t.transaction.actions);
+  const outcomeById = new Map(t.receipts_outcome.map((o) => [o.id, o.outcome.status]));
+  const receipts: ReceiptSummary[] = (t.receipts ?? [])
+    .filter((rc) => rc.predecessor_id !== "system")
+    .map((rc) => {
+      const st = outcomeById.get(rc.receipt_id);
+      return {
+        predecessorId: rc.predecessor_id,
+        receiverId: rc.receiver_id,
+        methodName: methodOf(rc.receipt.Action?.actions),
+        status: !st ? "UNKNOWN" : st.Failure !== undefined ? "FAILURE" : "SUCCESS",
+      };
+    });
+  const methodName = methodOf(t.transaction.actions as unknown[]);
   const partiesOk = t.transaction.signer_id === tx.signerId && t.transaction.receiver_id === tx.receiverId && methodName === tx.methodName;
   const statusOk = tx.expect === "success" ? !failed : failed && Boolean(errorMessage?.includes(tx.expectedError ?? "ZERODELTA_REJECTED"));
+  const gateReceipt = tx.expectedReceipt
+    ? receipts.find((rc) => rc.predecessorId === tx.expectedReceipt!.predecessorId && rc.receiverId === tx.expectedReceipt!.receiverId && rc.methodName === tx.expectedReceipt!.methodName)
+    : undefined;
+  const receiptOk = tx.expectedReceipt ? Boolean(gateReceipt && gateReceipt.status === "SUCCESS") : true;
+  // A rejected order must never reach the MPC signer.
+  const noMpcOnFailure = tx.expect === "failure" ? !receipts.some((rc) => rc.receiverId === MPC_CONTRACT) : true;
   const returnValue = decodeSuccessValue(t.status.SuccessValue);
+  const rejection = (errorMessage ?? "").match(/ZERODELTA_REJECTED[^"\\]*/)?.[0];
   return {
     ...base,
     found: true,
-    matchesExpectation: partiesOk && statusOk,
+    matchesExpectation: partiesOk && statusOk && receiptOk && noMpcOnFailure,
     onchainStatus: failed ? "FAILURE" : "SUCCESS",
     signerId: t.transaction.signer_id,
     receiverId: t.transaction.receiver_id,
@@ -313,27 +405,30 @@ export async function verifyProofTx(tx: ProofTx): Promise<TxVerification> {
     finality: t.final_execution_status,
     returnValue,
     errorMessage,
+    receipts,
+    gateReceipt,
     logs,
     endpoint: r.endpoint,
     detail: !partiesOk
       ? "signer/receiver/method differ from testnet-proof.json"
-      : failed
-        ? `failed on-chain as expected: ${(errorMessage ?? "").match(/ZERODELTA_REJECTED[^"\\]*/)?.[0] ?? errorMessage}`
-        : `succeeded on-chain (${t.final_execution_status ?? "final"})`,
+      : !receiptOk
+        ? `expected receipt ${tx.expectedReceipt?.predecessorId} -> ${tx.expectedReceipt?.receiverId}.${tx.expectedReceipt?.methodName} not found`
+        : failed
+          ? `failed on-chain as expected: ${rejection ?? errorMessage}${noMpcOnFailure ? "; no MPC receipt" : "; MPC WAS CALLED"}`
+          : gateReceipt
+            ? `succeeded; contract ${gateReceipt.predecessorId} called ${gateReceipt.receiverId}.${gateReceipt.methodName} (${t.final_execution_status ?? "final"})`
+            : `succeeded on-chain (${t.final_execution_status ?? "final"})`,
   };
 }
 
-let txCache: { at: number; value: TxVerification[] } | null = null;
+let txCache: TxVerification[] | null = null;
 
 /** Transactions are immutable once final, so results are cached per server process. */
 export async function verifyAllProofTxs(): Promise<TxVerification[]> {
-  if (txCache && txCache.value.every((v) => v.found)) return txCache.value;
-  const value = await Promise.all(TESTNET_PROOF.transactions.map(verifyProofTx));
-  txCache = { at: Date.now(), value };
-  return value;
+  if (txCache && txCache.every((v) => v.found)) return txCache;
+  txCache = await Promise.all(TESTNET_PROOF.transactions.map(verifyProofTx));
+  return txCache;
 }
-
-export { MPC_CONTRACT };
 
 // ---------------------------------------------------------------------------
 // Aggregated status for the dashboard (GET /api/swarm)
@@ -347,12 +442,20 @@ export interface OnchainProofStatus {
   guard: OnchainGuardState;
   transactions: TxVerification[];
   mpcSignature: TestnetProof["mpcSignature"] & { verification: MpcSignatureVerification };
+  mpcGate: { verified: boolean; predecessorId?: string; receiverId?: string; txHash?: string };
   allVerified: boolean;
 }
 
 export async function getOnchainProofStatus(): Promise<OnchainProofStatus> {
   const [guard, transactions] = await Promise.all([getOnchainGuardState(), verifyAllProofTxs()]);
   const verification = verifyMpcSignature(TESTNET_PROOF.mpcSignature);
+  const signTx = transactions.find((t) => t.kind === "RECORD_AND_SIGN_APPROVED_REBALANCE");
+  const mpcGate = {
+    verified: Boolean(signTx?.matchesExpectation && signTx.gateReceipt),
+    predecessorId: signTx?.gateReceipt?.predecessorId,
+    receiverId: signTx?.gateReceipt?.receiverId,
+    txHash: signTx?.hash,
+  };
   return {
     network: "testnet",
     contractId: RISK_GUARD_CONTRACT,
@@ -366,6 +469,7 @@ export async function getOnchainProofStatus(): Promise<OnchainProofStatus> {
     guard,
     transactions,
     mpcSignature: { ...TESTNET_PROOF.mpcSignature, verification },
-    allVerified: transactions.length > 0 && transactions.every((t) => t.matchesExpectation) && verification.valid,
+    mpcGate,
+    allVerified: transactions.length > 0 && transactions.every((t) => t.matchesExpectation) && verification.valid && mpcGate.verified && guard.locked === true,
   };
 }

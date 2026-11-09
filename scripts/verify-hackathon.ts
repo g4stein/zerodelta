@@ -8,11 +8,14 @@
  *   4. Live intents.near Verifier dry-run (simulate_intents on mainnet)
  *   5. Live NEAR Intents 1Click API (/v0/tokens, /v0/quote dry)
  *   6. Live Hyperliquid funding feed
- *   7. Deterministic risk-policy invariants
- *   8. Full live 3-agent swarm: hedged rebalance approved, rogue trade rejected
- *   9. On-chain testnet proof: deployed Risk Guard contract, policy, recorded
- *      attestation, and every transaction in testnet-proof.json re-checked via
- *      the NEAR `tx` RPC (archival), plus offline MPC signature recovery
+ *   7. Deterministic risk policy, TS/Rust mirror vectors, adversarial cases offline
+ *   8. Full live swarm: multi-asset ranking, Agent 1/2 negotiation, approved
+ *      rebalance, rogue trade, compromised solver; the deployed contract
+ *      recomputes each order (`check_order_params`)
+ *   9. On-chain testnet proof: locked Risk Guard v2 contract, policy, attestation,
+ *      contract-issued MPC sign receipt, and every transaction in
+ *      testnet-proof.json re-checked with EXPERIMENTAL_tx_status (archival RPC),
+ *      plus offline MPC signature recovery
  *
  * Result levels: PASS, WARN (live source unavailable, labelled fallback used),
  * SKIP (offline mode), FAIL. Exit code is 1 if anything FAILs, else 0.
@@ -22,11 +25,16 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import {
   TESTNET_PROOF,
-  checkRebalanceOnchain,
+  checkOrderOnchain,
   getOnchainGuardState,
   verifyMpcSignature,
   verifyProofTx,
+  type OnchainAttestation,
+  type TxVerification,
 } from "../src/lib/near/riskGuardContract";
+import { commitmentPreimage, computeHedgePayloadHex, computeOrderMetrics } from "../src/lib/near/orderCommitment";
+import { RISK_GUARD_CONTRACT_ID } from "../src/lib/near/deployment";
+import { getSolverEnclave } from "../src/lib/agents/solverAgent";
 import { viewFunction } from "../src/lib/near/rpcClient";
 import { sha256Bytes, toBase58 } from "../src/lib/crypto/encoding";
 import { KeyPair, KeyPairSigner, type KeyPairEd25519 } from "near-api-js";
@@ -50,7 +58,7 @@ import {
   viewAccount,
 } from "../src/lib/near/rpcClient";
 import { fetchFundingFeed } from "../src/lib/market/fundingFeed";
-import { evaluateRiskInvariants, GUARDIAN_NEAR_ACCOUNT, HEDGE_DERIVATION_PATH, verifyGuardianDecision } from "../src/lib/agents/guardianAgent";
+import { evaluateRiskInvariants, GUARDIAN_NEAR_ACCOUNT, HEDGE_DERIVATION_PATH, runGuardianAgent, verifyGuardianDecision } from "../src/lib/agents/guardianAgent";
 import { runSwarm, verifyAuditChain } from "../src/lib/swarm/orchestrator";
 import { USDC_NEAR_ASSET } from "../src/lib/swarm/types";
 import { bytesToHex } from "../src/lib/crypto/encoding";
@@ -207,64 +215,126 @@ async function main() {
   });
 
   // 7 ------------------------------------------------------------------------
-  heading("7. Deterministic risk-policy invariants");
+  heading("7. Deterministic risk policy, contract mirror and adversarial cases (offline)");
   check("Net delta 2.00% allowed, 2.01% blocked", evaluateRiskInvariants({ netDeltaRatio: 0.02, leverage: 1, maxPriceImpactBps: 0 }).deltaNeutral && !evaluateRiskInvariants({ netDeltaRatio: 0.0201, leverage: 1, maxPriceImpactBps: 0 }).deltaNeutral, "|spotLong − perpShort| / treasury ≤ 0.02");
   check("Leverage 3.0x allowed, 3.01x blocked", evaluateRiskInvariants({ netDeltaRatio: 0, leverage: 3, maxPriceImpactBps: 0 }).leverageOk && !evaluateRiskInvariants({ netDeltaRatio: 0, leverage: 3.01, maxPriceImpactBps: 0 }).leverageOk, "notional / collateral ≤ 3.0");
   check("Slippage 25 bps allowed, 25.01 bps blocked", evaluateRiskInvariants({ netDeltaRatio: 0, leverage: 1, maxPriceImpactBps: 25 }).slippageOk && !evaluateRiskInvariants({ netDeltaRatio: 0, leverage: 1, maxPriceImpactBps: 25.01 }).slippageOk, "≤ 25 bps");
-  const offA = await runSwarm({ mode: "rebalance", pair: "NEAR", treasuryUsd: 50_000, sliceCount: 8 }, { live: false });
-  check("Offline hedged plan approved", offA.guardian.decision === "APPROVED", `net delta ${(offA.guardian.metrics.netDeltaRatio * 100).toFixed(2)}%, leverage ${offA.guardian.metrics.leverage.toFixed(2)}x`);
+  const vec = { asset_symbol: "NEAR", treasury_usd_cents: 5_000_000, spot_long_usd_cents: 2_495_000, perp_short_usd_cents: 2_495_000, perp_long_usd_cents: 0, collateral_usd_cents: 5_000_000, quoted_slippage_bps: 2, nonce: 7 };
+  const rogueVec = { ...vec, spot_long_usd_cents: 4_970_000, perp_short_usd_cents: 0, perp_long_usd_cents: 45_000_000 };
+  check(
+    "TS mirror matches the Rust unit-test vectors",
+    commitmentPreimage("zerodelta-guard.testnet", vec) === "zerodelta-hedge-v1|zerodelta-guard.testnet|NEAR|5000000|2495000|2495000|0|5000000|2|7" &&
+      computeOrderMetrics(vec).leverage_x100 === 100 &&
+      computeOrderMetrics(rogueVec).net_delta_bps === 99_940 &&
+      computeOrderMetrics(rogueVec).leverage_x100 === 1000,
+    "preimage + ceil-rounded delta/leverage identical to contracts/risk-guard/src/lib.rs tests",
+  );
+  const offA = await runSwarm({ mode: "rebalance", pair: "AUTO", treasuryUsd: 50_000, sliceCount: "auto" }, { live: false });
+  check("Offline hedged plan approved (8 invariants)", offA.guardian.decision === "APPROVED" && offA.guardian.checks.length === 8, `${offA.resolved.pair}: net delta ${(offA.guardian.metrics.netDeltaRatio * 100).toFixed(2)}%, leverage ${offA.guardian.metrics.leverage.toFixed(2)}x`);
+  const replay = runGuardianAgent({ runId: "replay", solver: offA.solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex] });
+  check("Offline replay of the approved order rejected", replay.decision === "REJECTED" && replay.violations.join() === "REPLAY_AND_MPC_GATE", replay.checks.find((c) => c.id === "REPLAY_AND_MPC_GATE")!.detail ?? "");
   const offB = await runSwarm({ mode: "rogue", pair: "NEAR", treasuryUsd: 50_000, sliceCount: 8 }, { live: false });
   check("Offline rogue 10x long rejected", offB.guardian.decision === "REJECTED" && offB.guardian.violations.includes("DELTA_NEUTRALITY") && offB.guardian.violations.includes("LEVERAGE_CEILING"), `violations: ${offB.guardian.violations.join(", ")}`);
+  const offC = await runSwarm({ mode: "spoofed_metrics", pair: "NEAR", treasuryUsd: 50_000, sliceCount: "auto" }, { live: false });
+  check("Offline compromised solver (spoofed metrics) rejected", offC.guardian.decision === "REJECTED" && offC.guardian.violations.includes("ORDER_PAYLOAD_BINDING") && !offC.guardian.violations.includes("DELTA_NEUTRALITY"), `claimed delta ${(offC.guardian.metrics.netDeltaRatio * 100).toFixed(2)}% looks safe; violations: ${offC.guardian.violations.join(", ")}`);
+  const offD = await runSwarm({ mode: "rebalance", pair: "NEAR", treasuryUsd: 1_000_000, sliceCount: 1 }, { live: false });
+  const offEvents = offD.audit.events.map((e) => e.event);
+  check("Offline Agent 1/2 reslice negotiation", offD.negotiation.length > 1 && offEvents.includes("SCANNER_RESLICE_ADJUSTMENT") && offD.negotiation.at(-1)!.action === "ACCEPTED", offD.negotiation.map((n) => `${n.sliceCount} slices ${n.observedSlippageBps} bps`).join(" -> "));
 
   // 8 ------------------------------------------------------------------------
-  heading("8. Full live 3-agent swarm (dry-run settlement)");
-  await live("Delta-neutral rebalance ($50,000, NEAR-PERP / wNEAR)", async () => {
-    const r = await runSwarm({ mode: "rebalance", pair: "NEAR", treasuryUsd: 50_000, sliceCount: 8 }, { live: true });
+  heading("8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)");
+  await live("Autonomous delta-neutral rebalance ($50,000, AUTO pair, auto slices)", async () => {
+    const r = await runSwarm({ mode: "rebalance", pair: "AUTO", treasuryUsd: 50_000, sliceCount: "auto" }, { live: true });
     const g = r.guardian;
-    const sources = r.solver.quotes.map((q) => `${q.legId}:${q.source}`).join(" ");
-    check("Delta-neutral rebalance ($50,000, NEAR-PERP / wNEAR)", g.decision === "APPROVED", `${g.decision}; net delta ${(g.metrics.netDeltaRatio * 100).toFixed(2)}%, leverage ${g.metrics.leverage.toFixed(2)}x, slippage ${g.metrics.maxPriceImpactBps} bps; ${sources}`);
+    const m = r.scanner.opportunityMatrix;
+    const liveCosts = Object.values(r.costProbes).filter((c) => c.source === "1click-live").length;
+    check("  Agent 1 ranked all 4 markets by net-of-cost carry", m.length === 4 && r.resolved.pair === m[0].asset && liveCosts >= 1, m.map((o) => `#${o.rank} ${o.asset} ${o.grossCarryAprPct}% gross -> ${o.netCarryAprPct}% net`).join(" | ") + ` (${liveCosts}/4 live cost probes)`, liveCosts >= 1 ? "FAIL" : "WARN");
+    const last = r.negotiation.at(-1)!;
+    check("  Agent 1/2 slice negotiation converged", r.negotiation.length >= 1 && (last.action === "ACCEPTED" || last.action === "AT_SLICE_LIMIT"), r.negotiation.map((n) => `${n.sliceCount}sl ${n.observedSlippageBps}bps ${n.action}`).join(" -> "));
+    check("Autonomous delta-neutral rebalance ($50,000, AUTO pair, auto slices)", g.decision === "APPROVED", `${g.decision} ${r.resolved.pair}; net delta ${(g.metrics.netDeltaRatio * 100).toFixed(2)}%, leverage ${g.metrics.leverage.toFixed(2)}x, slippage ${g.metrics.maxPriceImpactBps} bps, ${r.resolved.sliceCount} slices`);
     check("  intents.near accepted the swarm's signed intent", r.settlement.status === "DRY_RUN_SETTLED", `${r.settlement.simulation?.status}: ${r.settlement.simulation?.panicMessage ?? "executed"}`);
-    check("  Chain Signatures request prepared for hedge", Boolean(g.mpcSignRequest) && Boolean(r.mpcAccount?.evmAddress), `${MPC_CONTRACT}.sign payload ${g.mpcSignRequest?.args.request.payload_v2.Ecdsa.slice(0, 16)}… → ${r.mpcAccount?.evmAddress}`);
+    const req = g.mpcSignRequest;
+    check(
+      "  MPC request is routed through the Risk Guard contract",
+      Boolean(req) && req!.contractId === RISK_GUARD_CONTRACT_ID && req!.forwardsTo.predecessor === RISK_GUARD_CONTRACT_ID && req!.forwardsTo.args.request.payload_v2.Ecdsa === computeHedgePayloadHex(RISK_GUARD_CONTRACT_ID, r.solver.order) && Boolean(r.mpcAccount?.evmAddress),
+      `${req?.contractId}.record_rebalance -> ${MPC_CONTRACT}.sign(${req?.forwardsTo.args.request.payload_v2.Ecdsa.slice(0, 16)}…) -> hedge key ${r.mpcAccount?.evmAddress}`,
+    );
     check("  Approval proof + audit chain verify", verifyGuardianDecision(g) && verifyAuditChain(r.audit.events), `decision ${g.decisionHash.slice(0, 16)}…, audit root ${r.audit.rootHash.slice(0, 16)}…`);
-    check("  Deployed testnet contract agrees (check_rebalance)", r.onchainCheck?.live === true && r.onchainCheck.approved === true, `${r.onchainCheck?.contractId}: ${r.onchainCheck?.approved ? "APPROVED" : (r.onchainCheck?.error ?? r.onchainCheck?.violations?.join("; "))}`);
+    const oc = r.onchainCheck;
+    const ts = computeOrderMetrics(r.solver.order);
+    check(
+      "  Deployed contract recomputes the same order and approves it",
+      oc?.live === true && oc.approved === true && oc.expectedPayloadHex === r.solver.hedgeOrderPayloadHex && oc.netDeltaBps === ts.net_delta_bps && oc.leverageX100 === ts.leverage_x100,
+      oc?.live ? `check_order_params: ${oc.netDeltaBps} bps / ${oc.leverageX100} (x100), payload match ${oc.payloadMatches}, nonce fresh ${oc.nonceFresh}` : String(oc?.error),
+    );
   });
   await live("Rogue AI directional gamble", async () => {
     const r = await runSwarm({ mode: "rogue", pair: "NEAR", treasuryUsd: 50_000, sliceCount: 8 }, { live: true });
     const g = r.guardian;
     check("Rogue AI directional gamble", g.decision === "REJECTED" && r.settlement.status === "BLOCKED_BY_GUARD" && g.mpcSignRequest === null, `${g.decision}; net delta ${(g.metrics.netDeltaRatio * 100).toFixed(0)}%, leverage ${g.metrics.leverage.toFixed(2)}x; violations ${g.violations.join(", ")}`);
     check("  Rejection proof signature verifies", verifyGuardianDecision(g), `guardian ${g.guardianPublicKey.slice(0, 16)}…`);
-    check("  Deployed testnet contract also rejects it", r.onchainCheck?.live === true && r.onchainCheck.approved === false, `${r.onchainCheck?.contractId}: ${r.onchainCheck?.violations?.join("; ") ?? r.onchainCheck?.error}`);
+    check("  Deployed contract also rejects it on its own math", r.onchainCheck?.live === true && r.onchainCheck.approved === false && Boolean(r.onchainCheck.violations?.some((v) => v.startsWith("DELTA_NEUTRALITY"))), `${r.onchainCheck?.contractId}: ${r.onchainCheck?.violations?.join("; ") ?? r.onchainCheck?.error}`);
+  });
+  await live("Compromised solver (spoofed metrics)", async () => {
+    const r = await runSwarm({ mode: "spoofed_metrics", pair: "AUTO", treasuryUsd: 50_000, sliceCount: "auto" }, { live: true });
+    const g = r.guardian;
+    check("Compromised solver (spoofed metrics)", g.decision === "REJECTED" && g.violations.includes("ORDER_PAYLOAD_BINDING") && g.violations.includes("ENVELOPE_INTEGRITY"), `claimed delta ${(g.metrics.netDeltaRatio * 100).toFixed(2)}%; violations ${g.violations.join(", ")}`);
+    check("  Deployed contract flags PAYLOAD_COMMITMENT_MISMATCH", r.onchainCheck?.live === true && r.onchainCheck.payloadMatches === false && Boolean(r.onchainCheck.violations?.some((v) => v.startsWith("PAYLOAD_COMMITMENT_MISMATCH"))), `${r.onchainCheck?.violations?.map((v) => v.slice(0, 60)).join("; ") ?? r.onchainCheck?.error}`);
   });
 
   // 9 ------------------------------------------------------------------------
-  heading("9. On-chain NEAR testnet proof (deployed Risk Guard + real transactions)");
+  heading("9. On-chain NEAR testnet proof (locked Risk Guard v2 + real transactions)");
   const proof = TESTNET_PROOF;
-  check("testnet-proof.json lists the deployed contract and ≥ 2 transactions", Boolean(proof.contract.accountId) && proof.transactions.length >= 2, `${proof.contract.accountId}; ${proof.transactions.length} txs; guard ${proof.accounts.guard}, solver ${proof.accounts.solver}`);
+  const C = proof.contract.accountId;
+  check("testnet-proof.json lists the locked v2 contract and 5 transactions", proof.version === 2 && proof.contract.locked && proof.transactions.length === 5 && C === RISK_GUARD_CONTRACT_ID, `${C}; solver ${proof.accounts.solver}; ${proof.transactions.length} txs`);
   const wasm = readFileSync(proof.contract.wasmPath);
   const wasmB58 = toBase58(sha256Bytes(new Uint8Array(wasm)));
   check("Committed contract WASM hashes to the recorded code hash", wasmB58 === proof.contract.codeHash, `sha256(${proof.contract.wasmPath}) = ${wasmB58}`);
   const mpcSig = verifyMpcSignature(proof.mpcSignature);
-  check("MPC secp256k1 signature recovers to the guard's derived key (offline)", mpcSig.valid, mpcSig.valid ? `signer ${proof.mpcSignature.evmAddress}, payload ${proof.mpcSignature.payloadHex.slice(0, 16)}…` : String(mpcSig.reason ?? "mismatch"));
+  check("MPC signature recovers to the contract's derived key (offline)", mpcSig.valid && proof.mpcSignature.predecessor === C && proof.mpcSignature.payloadHex === proof.approvedOrder.hedgeOrderPayloadHex, mpcSig.valid ? `predecessor ${proof.mpcSignature.predecessor} -> ${proof.mpcSignature.evmAddress}` : String(mpcSig.reason ?? "mismatch"));
+  check("Recorded orders reproduce their payloads (offline)", computeHedgePayloadHex(C, proof.approvedOrder.order) === proof.approvedOrder.hedgeOrderPayloadHex && computeHedgePayloadHex(C, proof.payloadSwapAttempt.order) !== proof.payloadSwapAttempt.hedgeOrderPayloadHex, "approved: keccak256(order) == payload; swap attack: payload belongs to a different order");
+  const txResults = new Map<string, TxVerification>();
   for (const tx of proof.transactions) {
     await live(tx.label, async () => {
       const v = await verifyProofTx(tx);
+      txResults.set(tx.kind, v);
       check(tx.label, v.matchesExpectation, `${v.onchainStatus} · ${tx.signerId} -> ${tx.receiverId}.${tx.methodName} · ${v.detail} · via ${v.endpoint ?? "n/a"} · ${tx.explorerUrl}`);
     });
   }
-  await live("Live contract code hash + policy 200 / 300 / 25", async () => {
+  await live("Guard-gated MPC: the contract itself called v1.signer-prod.testnet.sign", async () => {
+    const v = txResults.get("RECORD_AND_SIGN_APPROVED_REBALANCE");
+    const ret = v?.returnValue ? (JSON.parse(v.returnValue) as { big_r: string; s: string; recovery_id: number } | null) : null;
+    const ok = Boolean(v?.gateReceipt) && v!.gateReceipt!.predecessorId === C && v!.signerId === proof.accounts.solver && ret?.big_r === proof.mpcSignature.signature?.big_r && ret?.s === proof.mpcSignature.signature?.s;
+    check("Guard-gated MPC: the contract itself called v1.signer-prod.testnet.sign", ok, `tx signer ${v?.signerId}; sign receipt predecessor ${v?.gateReceipt?.predecessorId}; tx return value = recorded signature: ${ret?.big_r === proof.mpcSignature.signature?.big_r}`);
+  });
+  await live("Live derived hedge key matches the proof", async () => {
+    const d = await getMpcDerivedAccount(proof.mpcSignature.path, C);
+    check("Live derived hedge key matches the proof", d.live && d.derivedPublicKey === proof.mpcSignature.derivedPublicKey && d.evmAddress === proof.mpcSignature.evmAddress, `${C} / ${proof.mpcSignature.path} -> ${d.evmAddress}`);
+  });
+  await live("Contract is locked; code, policy and MPC target match", async () => {
     const g = await getOnchainGuardState();
     const p = g.policy;
-    const ok = g.live && g.codeHashMatchesProof === true && p?.max_delta_bps === 200 && p?.max_leverage_x100 === 300 && p?.max_slippage_bps === 25;
-    check("Live contract code hash + policy 200 / 300 / 25", ok, g.live ? `code ${g.codeHash}; policy ${p?.max_delta_bps}/${p?.max_leverage_x100}/${p?.max_slippage_bps}; ${g.attestationCount} attestation(s)` : String(g.error));
+    const ok = g.live && g.locked === true && g.codeHashMatchesProof === true && p?.max_delta_bps === 200 && p?.max_leverage_x100 === 300 && p?.max_slippage_bps === 25 && g.config?.mpc_signer_contract === MPC_CONTRACT && g.config?.solver === proof.accounts.solver;
+    check("Contract is locked; code, policy and MPC target match", ok, g.live ? `${g.accessKeyCount} access keys; code ${g.codeHash}; policy ${p?.max_delta_bps}/${p?.max_leverage_x100}/${p?.max_slippage_bps}; mpc ${g.config?.mpc_signer_contract}; last_nonce ${g.config?.last_nonce}` : String(g.error));
   });
-  await live("Recorded attestation matches the proof decision hash", async () => {
-    const r = await viewFunction<{ decision_hash: string; recorded_by: string; net_delta_bps: number } | null>("testnet", proof.contract.accountId, "get_attestation", { index: proof.recordedRebalance.index });
-    const ok = r.ok && r.value?.decision_hash === proof.recordedRebalance.decisionHash && r.value?.recorded_by === proof.accounts.solver;
-    check("Recorded attestation matches the proof decision hash", ok, r.ok ? `index ${proof.recordedRebalance.index}: decision ${r.value?.decision_hash.slice(0, 16)}… by ${r.value?.recorded_by}` : r.error);
+  await live("Attestation #0 holds the decision, payload and MPC signature", async () => {
+    const r = await viewFunction<OnchainAttestation | null>("testnet", C, "get_attestation", { index: proof.approvedOrder.index });
+    const a = r.ok ? r.value : null;
+    const ok = Boolean(a) && a!.decision_hash === proof.approvedOrder.decisionHash && a!.hedge_order_payload_hex === proof.approvedOrder.hedgeOrderPayloadHex && a!.recorded_by === proof.accounts.solver && a!.mpc_status === "Signed" && a!.mpc_signature?.s === proof.mpcSignature.signature?.s && a!.net_delta_bps === proof.approvedOrder.contractMetrics.net_delta_bps;
+    check("Attestation #0 holds the decision, payload and MPC signature", ok, a ? `decision ${a.decision_hash.slice(0, 12)}…, contract math ${a.net_delta_bps} bps / ${a.leverage_x100}, mpc ${a.mpc_status}` : r.ok ? "missing" : r.error);
   });
-  await live("Contract check_rebalance approves hedged / rejects rogue metrics", async () => {
-    const [a, b] = await Promise.all([checkRebalanceOnchain(proof.recordedRebalance.metrics), checkRebalanceOnchain(proof.rogueAttempt.metrics)]);
-    check("Contract check_rebalance approves hedged / rejects rogue metrics", a.approved === true && b.approved === false, `hedged: ${a.approved ? "APPROVED" : "REJECTED"}; rogue: ${b.approved ? "APPROVED" : `REJECTED (${b.violations?.join("; ")})`}`);
+  await live("Contract check_order_params: replay, rogue math and payload swap", async () => {
+    const [a, b, c, pay] = await Promise.all([
+      checkOrderOnchain(proof.approvedOrder.order, proof.approvedOrder.hedgeOrderPayloadHex),
+      checkOrderOnchain(proof.rogueAttempt.order, proof.rogueAttempt.hedgeOrderPayloadHex),
+      checkOrderOnchain(proof.payloadSwapAttempt.order, proof.payloadSwapAttempt.hedgeOrderPayloadHex),
+      viewFunction<string>("testnet", C, "compute_payload", { order: proof.approvedOrder.order }),
+    ]);
+    const replayOnly = a.violations?.length === 1 && a.violations[0].startsWith("NONCE_ALREADY_USED");
+    const rogueMath = Boolean(b.violations?.some((v) => v.startsWith("DELTA_NEUTRALITY"))) && Boolean(b.violations?.some((v) => v.startsWith("LEVERAGE_CEILING")));
+    const swap = c.payloadMatches === false && Boolean(c.violations?.some((v) => v.startsWith("PAYLOAD_COMMITMENT_MISMATCH")));
+    const mirror = pay.ok && pay.value === computeHedgePayloadHex(C, proof.approvedOrder.order);
+    check("Contract check_order_params: replay, rogue math and payload swap", replayOnly && rogueMath && swap && mirror, `approved order now -> ${a.violations?.[0]?.slice(0, 40)}; rogue -> ${b.violations?.map((v) => v.split(":")[0]).join("+")}; swap -> ${c.violations?.map((v) => v.split(":")[0]).join("+")}; contract compute_payload == TS keccak: ${mirror}`);
   });
 
   // Summary --------------------------------------------------------------------

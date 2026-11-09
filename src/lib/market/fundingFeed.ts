@@ -18,6 +18,8 @@ export interface PerpMarket {
   premium: number;
   openInterestUsd: number;
   dayVolumeUsd: number;
+  /** |mark − previous-day price| / previous-day price, as a fraction. */
+  dayMoveAbs: number;
 }
 
 export interface FundingFeed {
@@ -31,10 +33,10 @@ export interface FundingFeed {
 
 /** Snapshot used only when the live feed is unreachable. Values recorded 2026-11-08. */
 export const FUNDING_SNAPSHOT: Record<string, PerpMarket> = {
-  NEAR: { symbol: "NEAR", fundingHourly: 0.0000036816, markPx: 3.6482, oraclePx: 3.6505, premium: -0.0005917, openInterestUsd: 0, dayVolumeUsd: 0 },
-  SOL: { symbol: "SOL", fundingHourly: 0.0000125, markPx: 89.451, oraclePx: 89.475, premium: -0.0002235, openInterestUsd: 0, dayVolumeUsd: 0 },
-  ETH: { symbol: "ETH", fundingHourly: 0.0000125, markPx: 2232.15, oraclePx: 2233.03, premium: -0.0003269, openInterestUsd: 0, dayVolumeUsd: 0 },
-  BTC: { symbol: "BTC", fundingHourly: 0.0000125, markPx: 75847, oraclePx: 75869.9, premium: -0.0002887, openInterestUsd: 0, dayVolumeUsd: 0 },
+  NEAR: { symbol: "NEAR", fundingHourly: 0.0000036816, markPx: 3.6482, oraclePx: 3.6505, premium: -0.0005917, openInterestUsd: 144_000_000, dayVolumeUsd: 72_000_000, dayMoveAbs: 0.045 },
+  SOL: { symbol: "SOL", fundingHourly: 0.0000125, markPx: 89.451, oraclePx: 89.475, premium: -0.0002235, openInterestUsd: 432_000_000, dayVolumeUsd: 455_000_000, dayMoveAbs: 0.035 },
+  ETH: { symbol: "ETH", fundingHourly: 0.0000125, markPx: 2232.15, oraclePx: 2233.03, premium: -0.0003269, openInterestUsd: 1_700_000_000, dayVolumeUsd: 2_080_000_000, dayMoveAbs: 0.025 },
+  BTC: { symbol: "BTC", fundingHourly: 0.0000125, markPx: 75847, oraclePx: 75869.9, premium: -0.0002887, openInterestUsd: 3_150_000_000, dayVolumeUsd: 3_900_000_000, dayMoveAbs: 0.015 },
 };
 
 export const TRACKED_PERPS = ["NEAR", "SOL", "ETH", "BTC"] as const;
@@ -49,6 +51,7 @@ interface HlCtx {
   premium: string | null;
   openInterest: string;
   dayNtlVlm: string;
+  prevDayPx?: string;
 }
 
 export function fundingApr(fundingHourly: number): number {
@@ -78,6 +81,7 @@ export async function fetchFundingFeed(timeoutMs = 8_000): Promise<FundingFeed> 
         premium: Number(c.premium ?? 0),
         openInterestUsd: Number(c.openInterest) * markPx,
         dayVolumeUsd: Number(c.dayNtlVlm),
+        dayMoveAbs: c.prevDayPx && Number(c.prevDayPx) > 0 ? Math.abs(markPx - Number(c.prevDayPx)) / Number(c.prevDayPx) : 0.03,
       };
     });
     if (Object.keys(markets).length === 0) throw new Error("no tracked markets in response");

@@ -40,16 +40,18 @@ const NEARBLOCKS = "https://testnet.nearblocks.io";
 const nbAccount = (id: string) => `${NEARBLOCKS}/address/${id}`;
 const proofTx = (kind: string) => PROOF.transactions.find((t) => t.kind === kind);
 import type { SwarmRun } from "@/lib/swarm/orchestrator";
-import type { PairId, SwarmMode } from "@/lib/swarm/types";
+import type { PairSelection, SwarmMode } from "@/lib/swarm/types";
 import { Badge, Card, CodeBlock, KV, cx, short, usd } from "@/components/ui";
 
-const PAIR_OPTIONS: { id: PairId; label: string }[] = [
+const PAIR_OPTIONS: { id: PairSelection; label: string }[] = [
+  { id: "AUTO", label: "Auto (best net carry)" },
   { id: "NEAR", label: "NEAR-PERP / wNEAR" },
   { id: "SOL", label: "SOL-PERP / SOL" },
   { id: "ETH", label: "ETH-PERP / ETH" },
+  { id: "BTC", label: "BTC-PERP / nBTC" },
 ];
 
-const TRACKS = ["01 / DFI", "03 / PRV", "04 / BUS", "05 / SWM"];
+const TRACKS = ["01 / DFI", "03 / PRV", "04 / BUS", "05 / SWM", "06 / SEC", "07 / AGT"];
 
 type ProofTab = "intent" | "mpc" | "attestation" | "onchain" | "audit";
 type LiveTelemetry = BaseTelemetry & { onchain?: OnchainProofStatus };
@@ -58,8 +60,9 @@ export default function Dashboard() {
   const [telemetry, setTelemetry] = useState<LiveTelemetry | null>(null);
   const [telemetryLoading, setTelemetryLoading] = useState(true);
   const [treasury, setTreasury] = useState(50_000);
-  const [pair, setPair] = useState<PairId>("NEAR");
+  const [pair, setPair] = useState<PairSelection>("AUTO");
   const [slices, setSlices] = useState(8);
+  const [autoSlices, setAutoSlices] = useState(true);
   const [run, setRun] = useState<SwarmRun | null>(null);
   const [running, setRunning] = useState<SwarmMode | null>(null);
   const [phase, setPhase] = useState(0);
@@ -95,7 +98,7 @@ export default function Dashboard() {
         const res = await fetch("/api/swarm", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ mode, treasuryUsd: treasury, pair, sliceCount: slices }),
+          body: JSON.stringify({ mode, treasuryUsd: treasury, pair, sliceCount: autoSlices ? "auto" : slices }),
         });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
@@ -110,7 +113,7 @@ export default function Dashboard() {
         setRunning(null);
       }
     },
-    [treasury, pair, slices],
+    [treasury, pair, slices, autoSlices],
   );
 
   return (
@@ -127,6 +130,8 @@ export default function Dashboard() {
             setPair={setPair}
             slices={slices}
             setSlices={setSlices}
+            autoSlices={autoSlices}
+            setAutoSlices={setAutoSlices}
             running={running}
             onExecute={execute}
           />
@@ -295,10 +300,11 @@ function ExplorerLink({ href, children, className }: { href: string; children: R
 }
 
 const TX_SHORT: Record<string, string> = {
-  DEPLOY_AND_REGISTER_POLICY: "Deploy + policy",
-  RECORD_APPROVED_REBALANCE: "Approved rebalance",
+  DEPLOY_REGISTER_AND_LOCK: "Deploy + lock",
+  RECORD_AND_SIGN_APPROVED_REBALANCE: "Approved + MPC sign",
   ROGUE_REBALANCE_REJECTED: "Rogue rejected",
-  MPC_SIGN_HEDGE: "MPC sign",
+  PAYLOAD_SWAP_REJECTED: "Spoofed payload rejected",
+  REPLAY_REJECTED: "Replay rejected",
 };
 
 function OnchainProofStrip({ onchain }: { onchain?: OnchainProofStatus }) {
@@ -315,6 +321,9 @@ function OnchainProofStrip({ onchain }: { onchain?: OnchainProofStatus }) {
         </ExplorerLink>
         <Badge tone="emerald" className="font-mono">
           policy {policy.max_delta_bps}/{policy.max_leverage_x100}/{policy.max_slippage_bps}
+        </Badge>
+        <Badge tone={onchain?.guard.locked === false ? "rose" : "violet"}>
+          <Lock className="h-3 w-3" /> {onchain?.guard.locked === false ? "NOT locked" : "locked (0 keys)"}
         </Badge>
         {onchain?.guard.attestationCount !== undefined ? (
           <Badge tone="cyan">
@@ -343,40 +352,44 @@ function OnchainProofStrip({ onchain }: { onchain?: OnchainProofStatus }) {
 function OnchainProofPanel({ onchain, run }: { onchain?: OnchainProofStatus; run: SwarmRun }) {
   const check = run.onchainCheck;
   if (!onchain) return <div className="text-xs text-slate-500">Loading on-chain proof from NEAR testnet…</div>;
+  const cfg = onchain.guard.config;
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-          <div className="mb-1 text-[11px] font-semibold text-emerald-300">Deployed Risk Guard contract</div>
+          <div className="mb-1 text-[11px] font-semibold text-emerald-300">Deployed Risk Guard v2 contract</div>
           <KV label="Contract" value={<ExplorerLink href={onchain.contractUrl}>{onchain.contractId}</ExplorerLink>} />
-          <KV label="Owner (guard)" value={<ExplorerLink href={onchain.accounts.guardUrl}>{onchain.accounts.guard}</ExplorerLink>} />
-          <KV label="Solver" value={<ExplorerLink href={onchain.accounts.solverUrl}>{onchain.accounts.solver}</ExplorerLink>} />
+          <KV label="Solver (only allowed caller)" value={<ExplorerLink href={onchain.accounts.solverUrl}>{onchain.accounts.solver}</ExplorerLink>} />
+          <KV label="Account locked" value={onchain.guard.locked ? `TRUE (${onchain.guard.accessKeyCount} access keys)` : `FALSE (${onchain.guard.accessKeyCount ?? "?"} keys)`} />
           <KV
-            label="Live policy"
+            label="Immutable policy"
             value={
               onchain.guard.policy
                 ? `delta <= ${onchain.guard.policy.max_delta_bps} bps · leverage <= ${onchain.guard.policy.max_leverage_x100 / 100}x · slippage <= ${onchain.guard.policy.max_slippage_bps} bps`
                 : onchain.guard.error ?? "—"
             }
           />
+          <KV label="MPC target" value={cfg ? `${cfg.mpc_signer_contract} / ${cfg.mpc_path}` : "—"} />
+          <KV label="Last accepted nonce" value={cfg ? String(cfg.last_nonce) : "—"} />
           <KV label="Code hash" value={short(onchain.guard.codeHash, 10, 6)} copy={onchain.guard.codeHash} />
           <KV label="Matches committed WASM" value={onchain.guard.codeHashMatchesProof ? "TRUE" : "FALSE"} />
           <KV label="Attestations stored" value={String(onchain.guard.attestationCount ?? "—")} />
-          {onchain.guard.latest ? (
-            <KV label="Latest decision hash" value={short(onchain.guard.latest.decision_hash, 10, 6)} copy={onchain.guard.latest.decision_hash} />
-          ) : null}
+          {onchain.guard.latest ? <KV label="Attestation #0 MPC status" value={onchain.guard.latest.mpc_status} /> : null}
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-          <div className="mb-1 text-[11px] font-semibold text-cyan-300">This run, checked by the deployed contract</div>
+          <div className="mb-1 text-[11px] font-semibold text-cyan-300">This run, recomputed by the deployed contract</div>
           {check ? (
             check.live ? (
               <>
-                <KV label="Call" value={`${check.contractId}.check_rebalance`} />
-                <KV label="Args" value={`${check.args.net_delta_bps} bps / ${check.args.leverage_x100} / ${check.args.slippage_bps} bps`} />
+                <KV label="Call" value={`${check.contractId}.check_order_params`} />
+                <KV label="Raw legs (cents)" value={`spot ${check.order.spot_long_usd_cents} / short ${check.order.perp_short_usd_cents} / long ${check.order.perp_long_usd_cents}`} />
+                <KV label="Contract-computed delta" value={`${check.netDeltaBps} bps`} />
+                <KV label="Contract-computed leverage" value={`${((check.leverageX100 ?? 0) / 100).toFixed(2)}x`} />
+                <KV label="Payload commitment matches" value={check.payloadMatches ? "TRUE" : "FALSE"} />
+                <KV label="Nonce fresh" value={check.nonceFresh ? "TRUE" : "FALSE"} />
                 <KV label="Contract verdict" value={check.approved ? "APPROVED" : "REJECTED"} />
                 <KV label="Agrees with Agent 3" value={check.approved === (run.guardian.decision === "APPROVED") ? "TRUE" : "FALSE"} />
                 {check.violations?.length ? <KV label="Violations" value={check.violations.join("; ")} mono={false} /> : null}
-                <KV label="Block" value={`#${check.blockHeight?.toLocaleString()}`} />
               </>
             ) : (
               <div className="text-xs text-amber-300">Contract unreachable: {check.error}</div>
@@ -385,11 +398,14 @@ function OnchainProofPanel({ onchain, run }: { onchain?: OnchainProofStatus; run
             <div className="text-xs text-slate-500">Offline run: on-chain check skipped.</div>
           )}
           <div className="mt-3 border-t border-slate-800 pt-2">
-            <div className="mb-1 text-[11px] font-semibold text-violet-300">Chain Signatures MPC signature (secp256k1)</div>
-            <KV label="Signer address" value={onchain.mpcSignature.evmAddress} copy={onchain.mpcSignature.evmAddress} />
-            <KV label="Payload (keccak256)" value={short(onchain.mpcSignature.payloadHex, 10, 6)} copy={onchain.mpcSignature.payloadHex} />
-            <KV label="big_r" value={short(onchain.mpcSignature.signature?.big_r, 10, 6)} copy={onchain.mpcSignature.signature?.big_r} />
-            <KV label="Recovers to derived key" value={onchain.mpcSignature.verification.valid ? "TRUE" : "FALSE"} />
+            <div className="mb-1 text-[11px] font-semibold text-violet-300">Guard-gated Chain Signatures (secp256k1)</div>
+            <KV
+              label="sign() called by"
+              value={onchain.mpcGate.verified ? `${onchain.mpcGate.predecessorId} (the contract)` : "not verified"}
+            />
+            <KV label="Hedge key address" value={onchain.mpcSignature.evmAddress} copy={onchain.mpcSignature.evmAddress} />
+            <KV label="Signed payload" value={short(onchain.mpcSignature.payloadHex, 10, 6)} copy={onchain.mpcSignature.payloadHex} />
+            <KV label="Recovers to contract's key" value={onchain.mpcSignature.verification.valid ? "TRUE" : "FALSE"} />
           </div>
         </div>
       </div>
@@ -421,8 +437,8 @@ function OnchainProofPanel({ onchain, run }: { onchain?: OnchainProofStatus; run
         ))}
       </div>
       <p className="text-[11px] text-slate-500">
-        Transaction statuses are fetched live from a NEAR testnet archival RPC (<span className="font-mono">tx</span>, wait_until FINAL). The rogue transaction is
-        meant to fail: the contract panics with ZERODELTA_REJECTED and stores nothing.
+        Statuses come live from a NEAR testnet archival RPC (<span className="font-mono">EXPERIMENTAL_tx_status</span>, wait_until FINAL). The three FAILURE rows are
+        attacks: the contract panics with ZERODELTA_REJECTED, stores nothing and never calls the MPC signer.
       </p>
     </div>
   );
@@ -431,20 +447,22 @@ function OnchainProofPanel({ onchain, run }: { onchain?: OnchainProofStatus; run
 function ControlPanel(props: {
   treasury: number;
   setTreasury: (n: number) => void;
-  pair: PairId;
-  setPair: (p: PairId) => void;
+  pair: PairSelection;
+  setPair: (p: PairSelection) => void;
   slices: number;
   setSlices: (n: number) => void;
+  autoSlices: boolean;
+  setAutoSlices: (b: boolean) => void;
   running: SwarmMode | null;
   onExecute: (m: SwarmMode) => void;
 }) {
-  const { treasury, setTreasury, pair, setPair, slices, setSlices, running, onExecute } = props;
+  const { treasury, setTreasury, pair, setPair, slices, setSlices, autoSlices, setAutoSlices, running, onExecute } = props;
   return (
     <Card className="p-5">
       <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
         <Bot className="h-4 w-4 text-emerald-400" /> Swarm control panel
       </h2>
-      <p className="mt-1 text-xs text-slate-500">No wallet needed. Each run creates a fresh ed25519 key on the server.</p>
+      <p className="mt-1 text-xs text-slate-500">No wallet needed. Each run creates a fresh ed25519 key on the server and never broadcasts a transaction.</p>
 
       <div className="mt-5 space-y-5">
         <div>
@@ -472,13 +490,14 @@ function ControlPanel(props: {
 
         <div>
           <div className="text-xs text-slate-400">Target pair</div>
-          <div className="mt-2 grid grid-cols-3 gap-2">
+          <div className="mt-2 grid grid-cols-2 gap-2">
             {PAIR_OPTIONS.map((p) => (
               <button
                 key={p.id}
                 onClick={() => setPair(p.id)}
                 className={cx(
                   "rounded-lg border px-2 py-2 text-[11px] font-medium transition",
+                  p.id === "AUTO" && "col-span-2",
                   pair === p.id
                     ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
                     : "border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700",
@@ -495,8 +514,12 @@ function ControlPanel(props: {
             <label htmlFor="slices" className="text-slate-400">
               Confidential order slices
             </label>
-            <span className="font-mono text-cyan-300">{slices}</span>
+            <span className="font-mono text-cyan-300">{autoSlices ? "auto" : slices}</span>
           </div>
+          <label className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
+            <input type="checkbox" checked={autoSlices} onChange={(e) => setAutoSlices(e.target.checked)} className="accent-emerald-500" />
+            Let Agent 1 size slices from live liquidity (Agents 1 and 2 renegotiate if slippage is high)
+          </label>
           <input
             id="slices"
             type="range"
@@ -504,8 +527,9 @@ function ControlPanel(props: {
             max={24}
             step={1}
             value={slices}
+            disabled={autoSlices}
             onChange={(e) => setSlices(Number(e.target.value))}
-            className="mt-2 w-full"
+            className="mt-2 w-full disabled:opacity-40"
           />
         </div>
       </div>
@@ -527,6 +551,14 @@ function ControlPanel(props: {
           {running === "rogue" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />}
           Simulate Rogue AI Directional Gamble (Test Risk Guard)
         </button>
+        <button
+          disabled={running !== null}
+          onClick={() => onExecute("spoofed_metrics")}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-200 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {running === "spoofed_metrics" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <TriangleAlert className="h-4 w-4" />}
+          Simulate Compromised Solver (Spoofed Metrics)
+        </button>
       </div>
     </Card>
   );
@@ -542,12 +574,14 @@ function HonestyPanel() {
     { label: "NEP-413 signing + verification", status: "Real crypto", tone: "emerald" },
     { label: "intents.near simulate_intents", status: "Live mainnet dry-run", tone: "emerald" },
     { label: "Risk Guard smart contract", status: "Deployed on testnet", tone: "cyan", href: nbAccount(PROOF.contract.accountId) },
-    { label: "Policy registered on-chain (200/300/25)", status: "Testnet tx", tone: "cyan", href: tx("DEPLOY_AND_REGISTER_POLICY") },
-    { label: "Approved rebalance attestation", status: "Testnet tx", tone: "cyan", href: tx("RECORD_APPROVED_REBALANCE") },
-    { label: "Rogue trade rejected by contract", status: "Failed tx (on purpose)", tone: "cyan", href: tx("ROGUE_REBALANCE_REJECTED") },
-    { label: "Chain Signatures sign() via v1.signer-prod.testnet", status: "Testnet tx", tone: "cyan", href: tx("MPC_SIGN_HEDGE") },
-    { label: "Contract verdict on each dashboard run", status: "Live view call", tone: "emerald" },
-    { label: "TEE enclave + attestation", status: "Software-simulated", tone: "amber" },
+    { label: "Policy 200/300/25 registered + account locked", status: "Testnet tx", tone: "cyan", href: tx("DEPLOY_REGISTER_AND_LOCK") },
+    { label: "Contract recomputes order, then calls v1.signer-prod.testnet.sign", status: "Testnet tx", tone: "cyan", href: tx("RECORD_AND_SIGN_APPROVED_REBALANCE") },
+    { label: "Rogue 10x order rejected by contract math", status: "Failed tx (on purpose)", tone: "cyan", href: tx("ROGUE_REBALANCE_REJECTED") },
+    { label: "Spoofed MPC payload rejected (commitment)", status: "Failed tx (on purpose)", tone: "cyan", href: tx("PAYLOAD_SWAP_REJECTED") },
+    { label: "Replayed order rejected (nonce)", status: "Failed tx (on purpose)", tone: "cyan", href: tx("REPLAY_REJECTED") },
+    { label: "Contract recomputes every dashboard run", status: "Live view call", tone: "emerald" },
+    { label: "Multi-asset ranking + slice negotiation", status: "Live quotes", tone: "emerald" },
+    { label: "TEE enclave + attestation (prototype boundary)", status: "Software-simulated", tone: "amber" },
     { label: "Real fills / funds movement", status: "None (dry run)", tone: "amber" },
   ];
   return (
@@ -575,7 +609,7 @@ function HonestyPanel() {
         ))}
       </ul>
       <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
-        No funds move. Swarm runs are dry runs against real contracts and APIs. The four testnet transactions were sent once by the guard and solver accounts{" "}
+        No funds move. Swarm runs are dry runs against real contracts and APIs. The five testnet transactions were sent once, by the locked contract account and the solver{" "}
         <a className="text-cyan-300 hover:underline" href={nbAccount(PROOF.accounts.guard)} target="_blank" rel="noopener noreferrer">
           {PROOF.accounts.guard}
         </a>{" "}
@@ -619,12 +653,12 @@ function DecisionBanner({ run, running }: { run: SwarmRun | null; running: Swarm
           </div>
           <div>
             <div className={cx("text-lg font-semibold", approved ? "text-emerald-300" : "text-rose-300")}>
-              {approved ? "Intent approved and dry-run settled" : "Intent rejected by the Risk Guard"}
+              {approved ? "Intent approved and dry-run settled" : run.mode === "spoofed_metrics" ? "Compromised solver caught by the Risk Guard" : "Intent rejected by the Risk Guard"}
             </div>
             <div className="text-xs text-slate-400">
               {approved
                 ? `All ${g.checks.length} invariants hold. ${run.settlement.notes[0]}`
-                : `Violated: ${g.violations.join(", ")}. The intent was never sent and no MPC signature was requested.`}
+                : `Violated: ${g.violations.join(", ")}. The intent was never sent and no MPC signature was requested.${run.onchainCheck?.live ? ` The deployed contract also says ${run.onchainCheck.approved ? "APPROVED" : "REJECTED"}.` : ""}`}
             </div>
           </div>
         </div>
@@ -736,7 +770,7 @@ function Pipeline({ run, phase, running }: { run: SwarmRun | null; phase: number
   if (!run) {
     return (
       <div className="grid gap-6 lg:grid-cols-3">
-        <StepShell index={1} title="Opportunity & Funding Scanner" icon={<Radar className="h-4 w-4" />} state={stateFor(1)} />
+        <StepShell index={1} title="Autonomous Opportunity Scanner" icon={<Radar className="h-4 w-4" />} state={stateFor(1)} />
         <StepShell index={2} title="Confidential TEE Solver" icon={<Cpu className="h-4 w-4" />} state={stateFor(2)} />
         <StepShell index={3} title="Delta Risk Guard" icon={<ShieldCheck className="h-4 w-4" />} state={stateFor(3)} />
       </div>
@@ -746,10 +780,10 @@ function Pipeline({ run, phase, running }: { run: SwarmRun | null; phase: number
   const g = run.guardian;
   return (
     <div className="space-y-6">
-      <div className="grid gap-6 2xl:grid-cols-3">
-        <StepShell index={1} title="Opportunity & Funding Scanner" icon={<Radar className="h-4 w-4" />} state="done" durationMs={step("scanner")?.durationMs}>
-          <ScannerView run={run} />
-        </StepShell>
+      <StepShell index={1} title="Autonomous Opportunity Scanner" icon={<Radar className="h-4 w-4" />} state="done" durationMs={step("scanner")?.durationMs}>
+        <ScannerView run={run} />
+      </StepShell>
+      <div className="grid gap-6 2xl:grid-cols-2">
         <StepShell index={2} title="Confidential TEE Solver" icon={<Cpu className="h-4 w-4" />} state="done" durationMs={step("solver")?.durationMs}>
           <SolverView run={run} />
         </StepShell>
@@ -775,50 +809,97 @@ function ScannerView({ run }: { run: SwarmRun }) {
       <div className="flex flex-wrap gap-1.5">
         <Badge tone={s.sources.funding.live ? "emerald" : "amber"}>funding: {s.sources.funding.live ? "live Hyperliquid" : "snapshot"}</Badge>
         <Badge tone={s.sources.tokens.live ? "emerald" : "amber"}>1Click: {s.sources.tokens.count} tokens</Badge>
+        <Badge tone={s.sources.costs.includes("1click-live") ? "emerald" : "amber"}>costs: {s.sources.costs.join(", ")}</Badge>
+        <Badge tone="cyan">{s.selection.mode === "auto" ? "autonomous selection" : "manual override"}</Badge>
       </div>
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="text-left text-[10px] uppercase tracking-wider text-slate-500">
-            <th className="py-1 font-medium">Perp</th>
-            <th className="py-1 text-right font-medium">Funding APR</th>
-            <th className="py-1 text-right font-medium">Basis</th>
-          </tr>
-        </thead>
-        <tbody className="font-mono">
-          {s.scans.map((m) => (
-            <tr key={m.asset} className={cx("border-t border-slate-800/80", m.asset === s.selected.asset && "text-emerald-300")}>
-              <td className="py-1.5">{m.asset}-PERP</td>
-              <td className={cx("py-1.5 text-right", m.fundingAprPct < 0 && "text-rose-400")}>{m.fundingAprPct.toFixed(2)}%</td>
-              <td className="py-1.5 text-right text-slate-400">{m.basisBps === null ? "—" : `${m.basisBps.toFixed(1)} bps`}</td>
+      <div className="scrollbar-thin overflow-x-auto">
+        <table className="w-full min-w-[760px] text-xs">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-wider text-slate-500">
+              <th className="py-1 font-medium">#</th>
+              <th className="py-1 font-medium">Market</th>
+              <th className="py-1 text-right font-medium">Funding APR</th>
+              <th className="py-1 text-right font-medium">1Click round trip</th>
+              <th className="py-1 text-right font-medium">Net carry APR</th>
+              <th className="py-1 text-right font-medium">Breakeven</th>
+              <th className="py-1 text-right font-medium">Hedge</th>
+              <th className="py-1 text-right font-medium">Slices</th>
+              <th className="py-1 pl-3 font-medium">Verdict</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-        <KV label="Expected treasury APR" value={`${s.expectedTreasuryAprPct.toFixed(2)}%`} mono />
-        <KV label="Proposed plan" value={s.plan.planId} copy={s.plan.planId} />
+          </thead>
+          <tbody className="font-mono">
+            {s.opportunityMatrix.map((o) => (
+              <tr key={o.asset} className={cx("border-t border-slate-800/80", o.asset === s.selected.asset && "bg-emerald-500/5 text-emerald-300")}>
+                <td className="py-1.5">{o.rank}</td>
+                <td className="py-1.5">{o.pairLabel}</td>
+                <td className={cx("py-1.5 text-right", o.grossCarryAprPct < 0 && "text-rose-400")}>{o.grossCarryAprPct.toFixed(2)}%</td>
+                <td className="py-1.5 text-right text-slate-400">{o.estimatedRoundTripCostBps.toFixed(1)} bps</td>
+                <td className={cx("py-1.5 text-right font-semibold", o.netCarryAprPct < 0 ? "text-rose-400" : "text-emerald-300")}>{o.netCarryAprPct.toFixed(2)}%</td>
+                <td className="py-1.5 text-right text-slate-400">{o.breakevenDays === null ? "never" : `${o.breakevenDays} d`}</td>
+                <td className="py-1.5 text-right text-slate-400">{o.hedgeLeverage}x</td>
+                <td className="py-1.5 text-right text-slate-400">{o.recommendedSlices}</td>
+                <td className="py-1.5 pl-3 font-sans text-[11px] text-slate-500">{o.verdict}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      {run.injectedPlan ? (
-        <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-200">
-          <div className="mb-1 flex items-center gap-1.5 font-semibold">
-            <TriangleAlert className="h-3.5 w-3.5" /> Rogue plan injected
-          </div>
-          {run.injectedPlan.legs.map((l) => (
-            <div key={l.id} className="flex justify-between font-mono">
-              <span>
-                {l.kind} {l.side} {l.asset}
-              </span>
-              <span>{usd(l.notionalUsd, 0)}</span>
-            </div>
-          ))}
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+          <KV label="Decision" value={s.selection.reason} mono={false} />
+          <KV label="Expected treasury APR (net)" value={`${s.expectedTreasuryAprPct.toFixed(2)}%`} />
+          <KV label="Slice sizing" value={s.sliceRationale} mono={false} />
+          <KV label="Proposed plan" value={s.plan.planId} copy={s.plan.planId} />
         </div>
-      ) : (
-        <ul className="list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-slate-400">
-          {s.plan.rationale.slice(0, 2).map((r) => (
-            <li key={r}>{r}</li>
-          ))}
-        </ul>
-      )}
+        {run.injectedPlan ? (
+          <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-200">
+            <div className="mb-1 flex items-center gap-1.5 font-semibold">
+              <TriangleAlert className="h-3.5 w-3.5" /> Rogue plan injected
+            </div>
+            {run.injectedPlan.legs.map((l) => (
+              <div key={l.id} className="flex justify-between font-mono">
+                <span>
+                  {l.kind} {l.side} {l.asset}
+                </span>
+                <span>{usd(l.notionalUsd, 0)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <ul className="list-disc space-y-1 rounded-xl border border-slate-800 bg-slate-950/60 py-3 pl-7 pr-3 text-[11px] leading-relaxed text-slate-400">
+            {s.plan.rationale.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+            <li>
+              Costs: 2 x live 1Click entry + 2 x {s.assumptions.perpTakerFeeBps} bps perp taker fee, amortised over {s.assumptions.holdingDays} days.
+            </li>
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NegotiationLog({ run }: { run: SwarmRun }) {
+  if (run.negotiation.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+      <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-emerald-300">
+        <Bot className="h-3.5 w-3.5" /> Agent 1 / Agent 2 negotiation ({run.negotiation.length} round{run.negotiation.length === 1 ? "" : "s"})
+      </div>
+      <div className="space-y-1">
+        {run.negotiation.map((n) => (
+          <div key={n.round} className="grid grid-cols-[52px_70px_80px_1fr] items-center gap-2 font-mono text-[10px]">
+            <span className="text-slate-500">round {n.round}</span>
+            <span className="text-slate-300">{n.sliceCount} slices</span>
+            <span className={n.observedSlippageBps > n.targetBps ? "text-amber-300" : "text-emerald-300"}>{n.observedSlippageBps} bps</span>
+            <span className={cx("truncate", n.action === "RESLICE_REQUESTED" ? "text-cyan-300" : "text-slate-400")} title={n.note}>
+              {n.action === "RESLICE_REQUESTED" ? `SOLVER_SLIPPAGE_FEEDBACK -> SCANNER_RESLICE ${n.nextSliceCount}` : n.action}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-1 text-[10px] text-slate-500">Target {run.negotiation[0].targetBps} bps per slice; guard ceiling {run.negotiation[0].ceilingBps} bps.</div>
     </div>
   );
 }
@@ -870,6 +951,19 @@ function SolverView({ run }: { run: SwarmRun }) {
           </div>
         ))}
       </div>
+      <NegotiationLog run={run} />
+      <div className={cx("rounded-xl border p-3", s.compromised ? "border-amber-500/40 bg-amber-500/10" : "border-slate-800 bg-slate-950/60")}>
+        <div className="mb-1 flex items-center justify-between">
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-violet-300">
+            <KeyRound className="h-3.5 w-3.5" /> Order commitment for the Risk Guard
+          </span>
+          {s.compromised ? <Badge tone="amber">compromised solver</Badge> : null}
+        </div>
+        <KV label="Raw legs (cents)" value={`spot ${s.order.spot_long_usd_cents} · short ${s.order.perp_short_usd_cents} · long ${s.order.perp_long_usd_cents}`} />
+        <KV label="Replay nonce" value={String(s.order.nonce)} />
+        <KV label="Hedge payload (keccak256)" value={short(s.hedgeOrderPayloadHex, 10, 6)} copy={s.hedgeOrderPayloadHex} />
+        <KV label="Committed to" value={s.commitmentContractId} />
+      </div>
       <KV label="Signer (implicit)" value={short(s.signer.accountId, 10, 6)} copy={s.signer.accountId} />
     </div>
   );
@@ -906,11 +1000,12 @@ function GuardianView({ run }: { run: SwarmRun }) {
             label="Testnet contract verdict"
             value={
               <span className={run.onchainCheck.approved ? "text-emerald-300" : "text-rose-300"}>
-                {run.onchainCheck.approved ? "APPROVED" : "REJECTED"} (check_rebalance)
+                {run.onchainCheck.approved ? "APPROVED" : "REJECTED"} (check_order_params: {run.onchainCheck.netDeltaBps} bps, {((run.onchainCheck.leverageX100 ?? 0) / 100).toFixed(2)}x)
               </span>
             }
           />
         ) : null}
+        <KV label="MPC authorization" value={g.mpcSignRequest ? `via ${g.mpcSignRequest.contractId}.record_rebalance` : "none (blocked)"} />
         <KV label={g.decision === "APPROVED" ? "Approval proof" : "Rejection proof"} value={short(g.decisionHash, 10, 6)} copy={g.decisionHash} />
         <KV label="Guardian signature" value={short(g.guardianSignature, 10, 6)} copy={g.guardianSignature} />
       </div>
@@ -1013,7 +1108,7 @@ function ProofInspector({
   const sim = run.settlement.simulation;
   const tabs: { id: ProofTab; label: string }[] = [
     { id: "intent", label: "NEP-413 intent" },
-    { id: "mpc", label: "MPC sign request" },
+    { id: "mpc", label: "Guard-gated MPC request" },
     { id: "attestation", label: "TEE attestation" },
     { id: "onchain", label: "On-chain proof (testnet)" },
     { id: "audit", label: `Audit trail (${run.audit.events.length})` },
@@ -1076,14 +1171,17 @@ function ProofInspector({
           run.guardian.mpcSignRequest ? (
             <div className="space-y-3">
               <p className="text-xs text-slate-400">
-                Approved by the guard. This is the exact call the guardian account would make on{" "}
-                <span className="font-mono text-slate-200">v1.signer-prod.testnet</span> to have the MPC network sign the hedge order digest. It is prepared, not broadcast.
+                Approved by Agent 3. The solver may only send this <span className="font-mono text-slate-200">record_rebalance</span> call to the Risk Guard contract{" "}
+                <span className="font-mono text-slate-200">{run.guardian.mpcSignRequest.contractId}</span>. The contract recomputes delta and leverage from the raw legs,
+                checks that the payload equals keccak256 of those legs and that the nonce is fresh, and only then calls{" "}
+                <span className="font-mono text-slate-200">v1.signer-prod.testnet.sign</span> itself, as the predecessor that owns the hedge key. Prepared, not
+                broadcast.
               </p>
               <CodeBlock value={run.guardian.mpcSignRequest} />
             </div>
           ) : (
             <div className="flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-xs text-rose-200">
-              <Lock className="h-4 w-4" /> No MPC sign request exists for this run: the Risk Guard refused to authorize it.
+              <Lock className="h-4 w-4" /> No record_rebalance call exists for this run: Agent 3 refused it, and the contract would refuse it too (see the On-chain proof tab).
             </div>
           )
         ) : null}
