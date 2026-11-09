@@ -31,7 +31,14 @@ import {
   ExternalLink,
 } from "lucide-react";
 import type { LiveTelemetry as BaseTelemetry } from "@/lib/near/rpcClient";
-import type { OnchainProofStatus } from "@/lib/near/riskGuardContract";
+import type { OnchainProofStatus, TestnetProof } from "@/lib/near/riskGuardContract";
+import proofJson from "../../testnet-proof.json";
+
+/** Public proof data, bundled statically so the links are in the very first HTML response. */
+const PROOF = proofJson as TestnetProof;
+const NEARBLOCKS = "https://testnet.nearblocks.io";
+const nbAccount = (id: string) => `${NEARBLOCKS}/address/${id}`;
+const proofTx = (kind: string) => PROOF.transactions.find((t) => t.kind === kind);
 import type { SwarmRun } from "@/lib/swarm/orchestrator";
 import type { PairId, SwarmMode } from "@/lib/swarm/types";
 import { Badge, Card, CodeBlock, KV, cx, short, usd } from "@/components/ui";
@@ -49,7 +56,7 @@ type LiveTelemetry = BaseTelemetry & { onchain?: OnchainProofStatus };
 
 export default function Dashboard() {
   const [telemetry, setTelemetry] = useState<LiveTelemetry | null>(null);
-  const [telemetryLoading, setTelemetryLoading] = useState(false);
+  const [telemetryLoading, setTelemetryLoading] = useState(true);
   const [treasury, setTreasury] = useState(50_000);
   const [pair, setPair] = useState<PairId>("NEAR");
   const [slices, setSlices] = useState(8);
@@ -230,41 +237,41 @@ function TelemetryBar({
           icon={<Blocks className="h-3 w-3" />}
           label="Testnet block"
           ok={t?.testnet.live}
-          value={t?.testnet.latestBlockHeight ? `#${t.testnet.latestBlockHeight.toLocaleString()}` : loading ? "…" : "offline"}
+          value={t?.testnet.latestBlockHeight ? `#${t.testnet.latestBlockHeight.toLocaleString()}` : loading ? "loading…" : "offline"}
           sub={t?.testnet.latestBlockHash ? short(t.testnet.latestBlockHash, 10, 6) : undefined}
         />
         <Stat
           icon={<Blocks className="h-3 w-3" />}
           label="Mainnet block"
           ok={t?.mainnet.live}
-          value={t?.mainnet.latestBlockHeight ? `#${t.mainnet.latestBlockHeight.toLocaleString()}` : loading ? "…" : "offline"}
+          value={t?.mainnet.latestBlockHeight ? `#${t.mainnet.latestBlockHeight.toLocaleString()}` : loading ? "loading…" : "offline"}
           sub={t?.mainnet.gasPriceYocto ? `gas ${t.mainnet.gasPriceYocto} yocto` : undefined}
         />
         <Stat
           icon={<Network className="h-3 w-3" />}
           label="intents.near"
           ok={t?.intentsVerifier.exists && t.intentsVerifier.isContract}
-          value={t?.intentsVerifier.exists ? "Verifier live" : loading ? "…" : "unreachable"}
+          value={t?.intentsVerifier.exists ? "Verifier live" : loading ? "loading…" : "unreachable"}
           sub={t?.intentsVerifier.codeHash ? `code ${short(t.intentsVerifier.codeHash, 6, 4)}` : undefined}
         />
         <Stat
           icon={<KeyRound className="h-3 w-3" />}
           label="v1.signer-prod.testnet"
           ok={t?.mpc.live}
-          value={t?.mpc.version ? `MPC v${t.mpc.version}` : loading ? "…" : "unreachable"}
+          value={t?.mpc.version ? `MPC v${t.mpc.version}` : loading ? "loading…" : "unreachable"}
           sub={t?.mpc.signatureDomains !== undefined ? `${t.mpc.signatureDomains} signature domains` : undefined}
         />
         <Stat
           icon={<Coins className="h-3 w-3" />}
           label="1Click tokens"
           ok={t?.oneClick.live}
-          value={t ? `${t.oneClick.count} assets` : "…"}
+          value={t ? `${t.oneClick.count} assets` : loading ? "loading…" : "unavailable"}
           sub={t ? `${t.oneClick.chains.length} chains${t.oneClick.live ? "" : " (snapshot)"}` : undefined}
         />
         <Stat
           icon={<Server className="h-3 w-3" />}
           label="RPC latency"
-          value={t?.testnet.latencyMs !== undefined ? `${t.testnet.latencyMs} ms` : "…"}
+          value={t?.testnet.latencyMs !== undefined ? `${t.testnet.latencyMs} ms` : loading ? "loading…" : "unavailable"}
           sub={t?.testnet.endpoint ? t.testnet.endpoint.replace("https://", "") : undefined}
         />
       </div>
@@ -295,38 +302,39 @@ const TX_SHORT: Record<string, string> = {
 };
 
 function OnchainProofStrip({ onchain }: { onchain?: OnchainProofStatus }) {
+  const policy = onchain?.guard.policy ?? PROOF.contract.policy;
+  const status = (hash: string) => onchain?.transactions.find((t) => t.hash === hash);
   return (
     <div className="mt-2 flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-2 text-xs lg:flex-row lg:items-center lg:justify-between">
       <div className="flex flex-wrap items-center gap-2">
         <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-slate-500">
-          <ShieldCheck className="h-3 w-3 text-emerald-400" /> On-chain Risk Guard (testnet)
+          <ShieldCheck className="h-3 w-3 text-emerald-400" /> On-chain Risk Guard (NEAR testnet)
         </span>
-        {onchain ? (
-          <>
-            <ExplorerLink href={onchain.contractUrl} className="font-mono">
-              {onchain.contractId}
-            </ExplorerLink>
-            {onchain.guard.policy ? (
-              <Badge tone="emerald" className="font-mono">
-                policy {onchain.guard.policy.max_delta_bps}/{onchain.guard.policy.max_leverage_x100}/{onchain.guard.policy.max_slippage_bps}
-              </Badge>
-            ) : null}
-            {onchain.guard.attestationCount !== undefined ? (
-              <Badge tone="cyan">{onchain.guard.attestationCount} on-chain attestation{onchain.guard.attestationCount === 1 ? "" : "s"}</Badge>
-            ) : null}
-          </>
+        <ExplorerLink href={nbAccount(PROOF.contract.accountId)} className="font-mono">
+          {PROOF.contract.accountId}
+        </ExplorerLink>
+        <Badge tone="emerald" className="font-mono">
+          policy {policy.max_delta_bps}/{policy.max_leverage_x100}/{policy.max_slippage_bps}
+        </Badge>
+        {onchain?.guard.attestationCount !== undefined ? (
+          <Badge tone="cyan">
+            {onchain.guard.attestationCount} on-chain attestation{onchain.guard.attestationCount === 1 ? "" : "s"}
+          </Badge>
         ) : (
-          <span className="text-slate-500">loading…</span>
+          <Badge tone="slate">{onchain ? "state unavailable" : "verifying…"}</Badge>
         )}
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="text-[11px] text-slate-500">Nearblocks Testnet Explorer:</span>
-        {onchain?.transactions.map((tx) => (
-          <span key={tx.hash} className="flex items-center gap-1">
-            <span className={cx("h-1.5 w-1.5 rounded-full", tx.matchesExpectation ? "bg-emerald-400" : tx.found ? "bg-rose-500" : "bg-slate-600")} />
-            <ExplorerLink href={tx.explorerUrl}>{TX_SHORT[tx.kind] ?? tx.kind}</ExplorerLink>
-          </span>
-        ))}
+        {PROOF.transactions.map((tx) => {
+          const v = status(tx.hash);
+          return (
+            <span key={tx.hash} className="flex items-center gap-1" title={v ? v.detail : "verifying on-chain status…"}>
+              <span className={cx("h-1.5 w-1.5 rounded-full", !v ? "bg-slate-500" : v.matchesExpectation ? "bg-emerald-400" : v.found ? "bg-rose-500" : "bg-slate-600")} />
+              <ExplorerLink href={tx.explorerUrl}>{TX_SHORT[tx.kind] ?? tx.kind}</ExplorerLink>
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -525,15 +533,22 @@ function ControlPanel(props: {
 }
 
 function HonestyPanel() {
-  const rows: [string, string, "emerald" | "amber"][] = [
-    ["NEAR RPC blocks, accounts, MPC contract reads", "Live", "emerald"],
-    ["1Click token list + dry-run quotes", "Live", "emerald"],
-    ["Hyperliquid funding rates", "Live", "emerald"],
-    ["NEP-413 signing + verification", "Real crypto", "emerald"],
-    ["intents.near simulate_intents", "Live mainnet dry-run", "emerald"],
-    ["Chain Signatures derived hedge address", "Live testnet view", "emerald"],
-    ["TEE enclave + attestation", "Software-simulated", "amber"],
-    ["MPC sign() broadcast / real fills", "Prepared, not sent", "amber"],
+  type Row = { label: string; status: string; tone: "emerald" | "amber" | "cyan"; href?: string };
+  const tx = (kind: string) => proofTx(kind)?.explorerUrl;
+  const rows: Row[] = [
+    { label: "NEAR RPC blocks, accounts, MPC contract reads", status: "Live", tone: "emerald" },
+    { label: "1Click token list + dry-run quotes", status: "Live", tone: "emerald" },
+    { label: "Hyperliquid funding rates", status: "Live", tone: "emerald" },
+    { label: "NEP-413 signing + verification", status: "Real crypto", tone: "emerald" },
+    { label: "intents.near simulate_intents", status: "Live mainnet dry-run", tone: "emerald" },
+    { label: "Risk Guard smart contract", status: "Deployed on testnet", tone: "cyan", href: nbAccount(PROOF.contract.accountId) },
+    { label: "Policy registered on-chain (200/300/25)", status: "Testnet tx", tone: "cyan", href: tx("DEPLOY_AND_REGISTER_POLICY") },
+    { label: "Approved rebalance attestation", status: "Testnet tx", tone: "cyan", href: tx("RECORD_APPROVED_REBALANCE") },
+    { label: "Rogue trade rejected by contract", status: "Failed tx (on purpose)", tone: "cyan", href: tx("ROGUE_REBALANCE_REJECTED") },
+    { label: "Chain Signatures sign() via v1.signer-prod.testnet", status: "Testnet tx", tone: "cyan", href: tx("MPC_SIGN_HEDGE") },
+    { label: "Contract verdict on each dashboard run", status: "Live view call", tone: "emerald" },
+    { label: "TEE enclave + attestation", status: "Software-simulated", tone: "amber" },
+    { label: "Real fills / funds movement", status: "None (dry run)", tone: "amber" },
   ];
   return (
     <Card className="p-5">
@@ -541,14 +556,35 @@ function HonestyPanel() {
         <Info className="h-4 w-4 text-cyan-400" /> What is live vs simulated
       </h2>
       <ul className="mt-3 space-y-1.5">
-        {rows.map(([label, status, tone]) => (
-          <li key={label} className="flex items-center justify-between gap-2 text-xs">
-            <span className="text-slate-400">{label}</span>
-            <Badge tone={tone}>{status}</Badge>
+        {rows.map((r) => (
+          <li key={r.label} className="flex items-center justify-between gap-2 text-xs">
+            <span className="text-slate-400">{r.label}</span>
+            {r.href ? (
+              <a href={r.href} target="_blank" rel="noopener noreferrer" className="shrink-0" title="Open on Nearblocks Testnet Explorer">
+                <Badge tone={r.tone} className="hover:brightness-125">
+                  {r.status}
+                  <ExternalLink className="h-3 w-3" />
+                </Badge>
+              </a>
+            ) : (
+              <Badge tone={r.tone} className="shrink-0">
+                {r.status}
+              </Badge>
+            )}
           </li>
         ))}
       </ul>
-      <p className="mt-3 text-[11px] leading-relaxed text-slate-500">No funds move. Every run is a dry run against real contracts and APIs.</p>
+      <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
+        No funds move. Swarm runs are dry runs against real contracts and APIs. The four testnet transactions were sent once by the guard and solver accounts{" "}
+        <a className="text-cyan-300 hover:underline" href={nbAccount(PROOF.accounts.guard)} target="_blank" rel="noopener noreferrer">
+          {PROOF.accounts.guard}
+        </a>{" "}
+        and{" "}
+        <a className="text-cyan-300 hover:underline" href={nbAccount(PROOF.accounts.solver)} target="_blank" rel="noopener noreferrer">
+          {PROOF.accounts.solver}
+        </a>
+        .
+      </p>
     </Card>
   );
 }
