@@ -80,7 +80,7 @@ export interface AllocationRow {
 }
 
 export interface Settlement {
-  status: "DRY_RUN_SETTLED" | "BLOCKED_BY_GUARD" | "SKIPPED_OFFLINE" | "VERIFIER_REJECTED";
+  status: "DRY_RUN_SETTLED" | "BLOCKED_BY_GUARD" | "SKIPPED_OFFLINE" | "VERIFIER_REJECTED" | "NO_TRADE";
   simulation: IntentSimulation | null;
   allocation: AllocationRow[];
   notes: string[];
@@ -106,6 +106,12 @@ export interface SwarmRun {
   resolved: { pair: PairId; sliceCount: number; initialSliceCount: number; hedgeLeverage: number };
   costProbes: Record<PairId, CostProbe>;
   negotiation: NegotiationRound[];
+  /**
+   * Agent 1's economic recommendation. When NO_TRADE and not overridden, the risk
+   * pipeline still runs (so it can be inspected) but no settlement or sign request
+   * is prepared. Attack modes always run: they are labelled simulations.
+   */
+  economics: { recommendation: "TRADE" | "NO_TRADE"; reason: string; overridden: boolean; settlementWithheld: boolean };
   live: boolean;
   startedAt: string;
   finishedAt: string;
@@ -276,7 +282,7 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
   );
 
   // ---- Agent 1: autonomous scanner -----------------------------------------
-  const scan = await timed(() => runScannerAgent({ pair: request.pair, treasuryUsd: request.treasuryUsd, tokens, funding, costs: costProbes }));
+  const scan = await timed(() => runScannerAgent({ pair: request.pair, treasuryUsd: request.treasuryUsd, tokens, funding, costs: costProbes, requireLiveData: live }));
   const scanner = scan.value;
   const sel = scanner.selected;
   steps.push({
@@ -294,6 +300,19 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
     scanner.opportunityMatrix,
   );
   audit.record("scanner", "PLAN_PROPOSED", `plan ${scanner.plan.planId}; ${scanner.sliceRationale}`, scanner.plan);
+  const noTrade = scanner.recommendation === "NO_TRADE" && request.mode === "rebalance";
+  const economics = {
+    recommendation: scanner.recommendation,
+    reason: scanner.recommendationReason,
+    overridden: noTrade && request.simulateUnprofitable === true,
+    settlementWithheld: noTrade && request.simulateUnprofitable !== true,
+  };
+  audit.record(
+    "scanner",
+    scanner.recommendation === "TRADE" ? "TRADE_RECOMMENDED" : "NO_TRADE_RECOMMENDED",
+    `${scanner.recommendationReason}${economics.overridden ? " Demo override: settlement simulated anyway." : ""}`,
+    economics,
+  );
 
   let plan = scanner.plan;
   let injectedPlan: RebalancePlan | null = null;
@@ -366,9 +385,19 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
   // ---- Agent 3: risk guard ---------------------------------------------------
   const lastAcceptedNonce = (await lastNoncePromise) ?? 0;
   const guard = await timed(() =>
-    runGuardianAgent({ runId, solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex], lastAcceptedNonce }),
+    runGuardianAgent({
+      runId,
+      solver,
+      trustedEnclaveKeys: [getSolverEnclave().publicKeyHex],
+      lastAcceptedNonce,
+      expected: { treasuryUsd: request.treasuryUsd, pair: sel.asset },
+    }),
   );
   const guardian = guard.value;
+  if (economics.settlementWithheld && guardian.mpcSignRequest) {
+    // Risk-approved but not worth trading: do not hand out a sign request.
+    guardian.mpcSignRequest = null;
+  }
   const approved = guardian.decision === "APPROVED";
   steps.push({
     agent: "guardian",
@@ -399,6 +428,18 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
           "The signed intent was never sent to intents.near.",
           "No record_rebalance call was prepared, so the contract never asks the MPC network to sign.",
           `Violations: ${guardian.violations.join(", ")}`,
+        ],
+      };
+    }
+    if (economics.settlementWithheld) {
+      return {
+        status: "NO_TRADE",
+        simulation: null,
+        allocation: buildAllocation(solver, false, request.treasuryUsd, sel.hedgeLeverage),
+        notes: [
+          "Agent 1 recommends NO_TRADE, so ZeroDelta stays in USDC: no intent was sent and no record_rebalance call was prepared.",
+          scanner.recommendationReason,
+          "The solver and Risk Guard still ran so the pipeline can be inspected. Tick the demo override to simulate settlement anyway.",
         ],
       };
     }
@@ -450,6 +491,7 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
     agent: "settlement",
     title: "Dry-run Settlement",
     status: settlement.status === "DRY_RUN_SETTLED" ? "completed" : settlement.status === "BLOCKED_BY_GUARD" ? "blocked" : "skipped",
+
     startedAt: st.startedAt,
     durationMs: st.durationMs,
     summary: settlement.notes[0],
@@ -467,6 +509,7 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
     resolved: { pair: sel.asset, sliceCount: solver.sliceCount, initialSliceCount, hedgeLeverage: sel.hedgeLeverage },
     costProbes,
     negotiation,
+    economics,
     live,
     startedAt: started.toISOString(),
     finishedAt: finished.toISOString(),

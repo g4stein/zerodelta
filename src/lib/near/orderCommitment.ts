@@ -72,7 +72,8 @@ export function orderParamsFromPlan(plan: RebalancePlan, maxPriceImpactBps: numb
   const sum = (pred: (l: RebalancePlan["legs"][number]) => boolean) =>
     plan.legs.filter(pred).reduce((s, l) => s + toCents(l.notionalUsd), 0);
   const treasury = toCents(plan.treasuryUsd);
-  return {
+  if (!Number.isSafeInteger(nonce) || nonce <= 0) throw new Error(`nonce ${nonce} is not a positive safe integer`);
+  const order: OrderParams = {
     asset_symbol: PAIRS[plan.pair].perpSymbol,
     treasury_usd_cents: treasury,
     spot_long_usd_cents: sum((l) => l.kind === "SPOT" && l.side === "LONG"),
@@ -82,13 +83,19 @@ export function orderParamsFromPlan(plan: RebalancePlan, maxPriceImpactBps: numb
     quoted_slippage_bps: Math.max(0, Math.ceil(maxPriceImpactBps - 1e-9)) + 0,
     nonce,
   };
+  for (const [k, v] of Object.entries(order)) {
+    if (typeof v === "number" && !Number.isSafeInteger(v)) throw new Error(`${k} = ${v} is not a safe integer`);
+  }
+  return order;
 }
 
 let lastNonce = 0;
 /** Strictly increasing, JSON-safe u64 nonce (microsecond clock, bumped on collisions). */
-export function nextOrderNonce(): number {
-  const candidate = Date.now() * 1000;
+export function nextOrderNonce(now = Date.now()): number {
+  const candidate = now * 1000;
   lastNonce = Math.max(candidate, lastNonce + 1);
+  // Date.now() * 1000 stays below Number.MAX_SAFE_INTEGER until the year 2255.
+  if (!Number.isSafeInteger(lastNonce)) throw new Error("nonce overflowed the safe integer range");
   return lastNonce;
 }
 

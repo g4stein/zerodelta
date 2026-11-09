@@ -23,6 +23,11 @@
  * Offline mode (no network): `ZERODELTA_OFFLINE=1 npm run verify` or `npm run verify -- --offline`.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { actionHash, buildHedgeAction, checkActionMatchesApprovedHedge, orderAction, orderWire, signL1Action } from "../src/lib/hyperliquid/exchangeSigning";
+import { runScannerAgent, probeEntryCosts } from "../src/lib/agents/scannerAgent";
+import { FUNDING_SNAPSHOT } from "../src/lib/market/fundingFeed";
+import { ONECLICK_TOKEN_SNAPSHOT } from "../src/lib/near/rpcClient";
 import {
   TESTNET_PROOF,
   checkOrderOnchain,
@@ -241,10 +246,36 @@ async function main() {
   const offEvents = offD.audit.events.map((e) => e.event);
   check("Offline Agent 1/2 reslice negotiation", offD.negotiation.length > 1 && offEvents.includes("SCANNER_RESLICE_ADJUSTMENT") && offD.negotiation.at(-1)!.action === "ACCEPTED", offD.negotiation.map((n) => `${n.sliceCount} slices ${n.observedSlippageBps} bps`).join(" -> "));
 
+  const negFunding = { live: false, source: "test", fetchedAt: "", markets: Object.fromEntries(Object.entries(FUNDING_SNAPSHOT).map(([k, m]) => [k, { ...m, fundingHourly: -0.00001 }])) };
+  const snapTokens = { live: false, source: "test", tokens: ONECLICK_TOKEN_SNAPSHOT, count: ONECLICK_TOKEN_SNAPSHOT.length, chains: [], fetchedAt: "" };
+  const noTrade = runScannerAgent({ pair: "AUTO", treasuryUsd: 50_000, tokens: snapTokens, funding: negFunding, costs: await probeEntryCosts(false, "x") });
+  const offE = await runSwarm({ mode: "rebalance", pair: "NEAR", treasuryUsd: 50_000, sliceCount: 4 }, { live: false });
+  check("Offline NO_TRADE: no negative-carry trade is recommended or settled", noTrade.recommendation === "NO_TRADE" && offE.economics.settlementWithheld && offE.settlement.status === "NO_TRADE" && offE.guardian.mpcSignRequest === null, `${noTrade.recommendationReason.slice(0, 90)}…`);
+  const SDK_KEY = "0x0123456789012345678901234567890123456789012345678901234567890123"; // public test key from the official SDK tests
+  const hlOrder = orderAction([orderWire({ asset: 1, isBuy: true, sz: 100, limitPx: 100, reduceOnly: false, tif: "Gtc" })]);
+  const hlSig = signL1Action(SDK_KEY, hlOrder, 0, true);
+  const hlConn = bytesToHex(actionHash(orderAction([orderWire({ asset: 4, isBuy: true, sz: 0.0147, limitPx: 1670.1, reduceOnly: false, tif: "Ioc" })]), 1677777606040));
+  check(
+    "Offline Hyperliquid signing matches official SDK test vectors",
+    hlSig.r === "0xd65369825a9df5d80099e513cce430311d7d26ddf477f5b3a33d2806b100d78e" && hlSig.s === "0x2b54116ff64054968aa237c20ca9ff68000f977c93289157748a3162b6ea940e" && hlSig.v === 28 && hlConn === "0fcbeda5ae3c4950a548021552a4fea2226858c4453571bf3f24ba017eac2908",
+    "hyperliquid-python-sdk tests/signing_test.py: order signature + phantom agent connectionId",
+  );
+  const hedge = buildHedgeAction(TESTNET_PROOF.approvedOrder.order, 3.6);
+  const tampered = structuredClone(hedge);
+  tampered.orders[0].b = true;
+  check(
+    "Offline: executable hedge bound to approved order; tampering detected; not the contract digest",
+    checkActionMatchesApprovedHedge(hedge, TESTNET_PROOF.approvedOrder.order).ok && !checkActionMatchesApprovedHedge(tampered, TESTNET_PROOF.approvedOrder.order).ok && bytesToHex(actionHash(hedge, 0)) !== TESTNET_PROOF.mpcSignature.payloadHex,
+    "readiness module only: the deployed contract signs a ZeroDelta commitment, not a Hyperliquid action",
+  );
+
   // 8 ------------------------------------------------------------------------
   heading("8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)");
   await live("Autonomous delta-neutral rebalance ($50,000, AUTO pair, auto slices)", async () => {
-    const r = await runSwarm({ mode: "rebalance", pair: "AUTO", treasuryUsd: 50_000, sliceCount: "auto" }, { live: true });
+    // simulateUnprofitable keeps this a pipeline check even if live carry is negative today;
+    // the economic recommendation is reported (and checked for consistency) separately.
+    const r = await runSwarm({ mode: "rebalance", pair: "AUTO", treasuryUsd: 50_000, sliceCount: "auto", simulateUnprofitable: true }, { live: true });
+    check("  Agent 1 recommendation is consistent with the live matrix", (r.economics.recommendation === "TRADE") === (r.scanner.selected.eligible && r.sources.funding.live), `${r.economics.reason.slice(0, 120)}${r.economics.overridden ? " (pipeline check used the demo override)" : ""}`);
     const g = r.guardian;
     const m = r.scanner.opportunityMatrix;
     const liveCosts = Object.values(r.costProbes).filter((c) => c.source === "1click-live").length;
@@ -342,8 +373,45 @@ async function main() {
   const failed = count("FAIL");
   const secs = ((Date.now() - started) / 1000).toFixed(1);
   console.log(`\n${color.bold}Summary${color.reset}  ${color.PASS}${count("PASS")} passed${color.reset} · ${color.WARN}${count("WARN")} warnings${color.reset} · ${color.SKIP}${count("SKIP")} skipped${color.reset} · ${color.FAIL}${failed} failed${color.reset}  (${secs}s)`);
-  writeFileSync("verify-report.json", JSON.stringify({ offline, finishedAt: new Date().toISOString(), results }, null, 2));
-  console.log("Machine-readable report written to verify-report.json");
+  const sh = (cmd: string) => {
+    try {
+      return execSync(cmd, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    } catch {
+      return null;
+    }
+  };
+  const bySection: Record<string, Record<Level, number>> = {};
+  for (const r of results) {
+    bySection[r.section] ??= { PASS: 0, WARN: 0, SKIP: 0, FAIL: 0 };
+    bySection[r.section][r.level]++;
+  }
+  const dirty = sh("git status --porcelain --untracked-files=no");
+  const report = {
+    project: "ZeroDelta",
+    schema: 2,
+    generatedAt: new Date().toISOString(),
+    overall: failed > 0 ? "FAIL" : "PASS",
+    mode: offline ? "offline" : "live",
+    source: {
+      commit: sh("git rev-parse HEAD"),
+      branch: sh("git rev-parse --abbrev-ref HEAD"),
+      // true = tracked files differed from `commit` when this ran, so the report covers uncommitted changes
+      dirty: dirty === null ? null : dirty.length > 0,
+      note: "A committed report describes the commit it ran on, which is the parent of the commit that adds it. CI artifacts are tied to their own commit.",
+    },
+    environment: { node: process.version, platform: `${process.platform}-${process.arch}`, ci: Boolean(process.env.CI), rust: sh("rustc --version") },
+    totals: { checks: results.length, PASS: count("PASS"), WARN: count("WARN"), SKIP: count("SKIP"), FAIL: failed, durationSec: Number(secs) },
+    bySection,
+    deployment: {
+      network: "testnet",
+      contract: TESTNET_PROOF.contract.accountId,
+      codeHash: TESTNET_PROOF.contract.codeHash,
+      transactions: TESTNET_PROOF.transactions.map((t) => ({ kind: t.kind, hash: t.hash, expect: t.expect, explorerUrl: t.explorerUrl })),
+    },
+    results,
+  };
+  writeFileSync(process.env.VERIFY_REPORT_PATH ?? "verify-report.json", JSON.stringify(report, null, 2) + "\n");
+  console.log(`Machine-readable report written to ${process.env.VERIFY_REPORT_PATH ?? "verify-report.json"}`);
   if (failed > 0) {
     console.log(`${color.FAIL}${color.bold}VERIFICATION FAILED${color.reset}`);
     process.exit(1);

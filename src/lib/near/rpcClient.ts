@@ -15,10 +15,23 @@ import type { SignedNep413Intent } from "./nep413";
 
 export type NearNetwork = "testnet" | "mainnet";
 
+/**
+ * FastNEAR first: since Nov 2026 rpc.*.near.org answers some requests with a JSON-RPC
+ * -429 "endpoint deprecated" error. Both stay in the list for failover.
+ */
 export const RPC_ENDPOINTS: Record<NearNetwork, string[]> = {
-  testnet: ["https://rpc.testnet.near.org", "https://test.rpc.fastnear.com"],
-  mainnet: ["https://rpc.mainnet.near.org", "https://free.rpc.fastnear.com"],
+  testnet: ["https://test.rpc.fastnear.com", "https://rpc.testnet.near.org"],
+  mainnet: ["https://free.rpc.fastnear.com", "https://rpc.mainnet.near.org"],
 };
+
+/** JSON-RPC errors that describe the endpoint, not the request: try the next endpoint. */
+export function isTransientRpcError(error: { code?: number; message?: string; cause?: { name?: string } }): boolean {
+  const name = error.cause?.name ?? "";
+  if (["TOO_MANY_REQUESTS", "INTERNAL_ERROR", "TIMEOUT_ERROR", "NO_SYNCED_BLOCKS", "NOT_SYNCED_YET"].includes(name)) return true;
+  if (error.code === -429 || error.code === 429) return true;
+  if (!name && /deprecated|rate limit|too many|unavailable/i.test(error.message ?? "")) return true;
+  return false;
+}
 
 export const MPC_CONTRACT = "v1.signer-prod.testnet";
 export const INTENTS_VERIFIER = "intents.near";
@@ -82,10 +95,15 @@ export async function nearRpc<T>(
         errors.push(`${endpoint}: HTTP ${res.status}`);
         continue;
       }
-      const body = (await res.json()) as { result?: T; error?: { message?: string; cause?: { name?: string } } };
+      const body = (await res.json()) as { result?: T; error?: { code?: number; message?: string; cause?: { name?: string } } };
       if (body.error) {
-        // A JSON-RPC level error is authoritative (e.g. unknown account); don't fail over.
-        return { ok: false, endpoint, error: body.error.cause?.name ?? body.error.message ?? "rpc error" };
+        const label = body.error.cause?.name ?? body.error.message?.slice(0, 120) ?? "rpc error";
+        if (isTransientRpcError(body.error)) {
+          errors.push(`${endpoint}: ${label}`);
+          continue;
+        }
+        // A semantic JSON-RPC error (e.g. UNKNOWN_ACCOUNT) is authoritative; don't fail over.
+        return { ok: false, endpoint, error: label };
       }
       return { ok: true, result: body.result as T, endpoint, latencyMs: Date.now() - started };
     } catch (err) {
@@ -230,13 +248,18 @@ export async function viewFunction<T>(
     timeoutMs,
   );
   if (!r.ok) return { ok: false, error: r.error };
-  if (r.result.error || !r.result.result) {
+  if (!r.result || typeof r.result !== "object") return { ok: false, error: "malformed call_function response" };
+  if (r.result.error || !Array.isArray(r.result.result)) {
     const raw = r.result.error ?? "empty result";
     const panic = /panic_msg: \\?"([^"\\]*)/.exec(raw)?.[1];
     return { ok: false, error: raw, contractPanic: panic ?? raw };
   }
   const text = Buffer.from(r.result.result).toString("utf8");
-  return { ok: true, value: JSON.parse(text) as T, blockHeight: r.result.block_height, endpoint: r.endpoint };
+  try {
+    return { ok: true, value: JSON.parse(text) as T, blockHeight: r.result.block_height, endpoint: r.endpoint };
+  } catch {
+    return { ok: false, error: "view result is not valid JSON" };
+  }
 }
 
 // ---------------------------------------------------------------------------

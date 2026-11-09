@@ -25,10 +25,13 @@ Metrics are rounded **up**: `net_delta_bps = ceil(|spot + perp_long − perp_sho
 ## Test
 
 ```bash
-cargo test     # 18 unit tests: valid order, rogue math, payload swap, replay, older nonce,
-               # unauthorized caller, guard account itself, inflated collateral, malformed hash,
-               # MPC promise + callback (success and failure), deposit rules, slippage, vectors
+cargo test     # 33 tests
 ```
+
+- 18 unit tests in `src/lib.rs`: valid order, rogue math, payload swap, replay, older nonce, unauthorized caller, the guard account itself, inflated collateral, malformed hash, MPC promise + callback (success and failure), deposit rules, slippage, canonical vectors.
+- 15 adversarial integration tests in `tests/adversarial.rs` (kept outside `src/` so the deployed source and WASM stay byte-identical): delta and leverage rounding boundaries, over-hedged shorts, slippage boundary, zero treasury/collateral, invalid symbols, `u64::MAX` legs, every order field and the contract id bound by the payload, uppercase hex, nonce 0, nonce floor after acceptance, deposits without an MPC request, garbage payloads in the view.
+
+Known limits of this deployed version (immutable): any `u64` nonce above `last_nonce` is accepted, and storage is paid from the contract's balance. See `docs/SECURITY_MODEL.md` findings F-1 and F-2.
 
 ## Build
 

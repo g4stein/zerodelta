@@ -33,6 +33,7 @@ import {
 import type { LiveTelemetry as BaseTelemetry } from "@/lib/near/rpcClient";
 import type { OnchainProofStatus, TestnetProof } from "@/lib/near/riskGuardContract";
 import proofJson from "../../testnet-proof.json";
+import { computeOrderMetrics, type OrderParams } from "@/lib/near/orderCommitment";
 
 /** Public proof data, bundled statically so the links are in the very first HTML response. */
 const PROOF = proofJson as TestnetProof;
@@ -51,7 +52,7 @@ const PAIR_OPTIONS: { id: PairSelection; label: string }[] = [
   { id: "BTC", label: "BTC-PERP / nBTC" },
 ];
 
-const TRACKS = ["01 / DFI", "03 / PRV", "04 / BUS", "05 / SWM", "06 / SEC", "07 / AGT"];
+const TRACKS = ["06 / SEC", "01 / DFI", "05 / SWM", "04 / BUS", "07 / AGT", "03 / PRV"];
 
 type ProofTab = "intent" | "mpc" | "attestation" | "onchain" | "audit";
 type LiveTelemetry = BaseTelemetry & { onchain?: OnchainProofStatus };
@@ -63,6 +64,7 @@ export default function Dashboard() {
   const [pair, setPair] = useState<PairSelection>("AUTO");
   const [slices, setSlices] = useState(8);
   const [autoSlices, setAutoSlices] = useState(true);
+  const [simulateUnprofitable, setSimulateUnprofitable] = useState(false);
   const [run, setRun] = useState<SwarmRun | null>(null);
   const [running, setRunning] = useState<SwarmMode | null>(null);
   const [phase, setPhase] = useState(0);
@@ -98,7 +100,7 @@ export default function Dashboard() {
         const res = await fetch("/api/swarm", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ mode, treasuryUsd: treasury, pair, sliceCount: autoSlices ? "auto" : slices }),
+          body: JSON.stringify({ mode, treasuryUsd: treasury, pair, sliceCount: autoSlices ? "auto" : slices, simulateUnprofitable }),
         });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
@@ -113,16 +115,16 @@ export default function Dashboard() {
         setRunning(null);
       }
     },
-    [treasury, pair, slices, autoSlices],
+    [treasury, pair, slices, autoSlices, simulateUnprofitable],
   );
 
   return (
-    <main className="mx-auto max-w-[1500px] px-4 pb-16 pt-6 sm:px-6">
+    <main className="mx-auto max-w-[1500px] px-4 pb-16 pt-6 sm:px-6" aria-label="ZeroDelta dashboard">
       <Header />
       <TelemetryBar telemetry={telemetry} loading={telemetryLoading} onRefresh={() => void loadTelemetry()} />
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[380px_1fr]">
-        <div className="space-y-6">
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-6">
           <ControlPanel
             treasury={treasury}
             setTreasury={setTreasury}
@@ -132,13 +134,16 @@ export default function Dashboard() {
             setSlices={setSlices}
             autoSlices={autoSlices}
             setAutoSlices={setAutoSlices}
+            simulateUnprofitable={simulateUnprofitable}
+            setSimulateUnprofitable={setSimulateUnprofitable}
             running={running}
             onExecute={execute}
           />
+          <WhyItMatters />
           <HonestyPanel />
         </div>
 
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           {error ? (
             <Card className="border-rose-500/40 p-4 text-sm text-rose-300">
               <div className="flex items-center gap-2">
@@ -147,6 +152,7 @@ export default function Dashboard() {
             </Card>
           ) : null}
           <DecisionBanner run={run} running={running} />
+          {run?.mode === "spoofed_metrics" ? <AttackComparison run={run} onchain={telemetry?.onchain} /> : null}
           <Pipeline run={run} phase={phase} running={running} />
           {run ? <ProofInspector run={run} tab={tab} setTab={setTab} onchain={telemetry?.onchain} /> : null}
         </div>
@@ -159,8 +165,8 @@ export default function Dashboard() {
 
 function Header() {
   return (
-    <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-      <div>
+    <header className="space-y-5">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="flex items-center gap-3">
           <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-500 text-slate-950 shadow-lg shadow-emerald-500/20">
             <Scale className="h-5 w-5" />
@@ -169,18 +175,85 @@ function Header() {
             <h1 className="text-2xl font-semibold tracking-tight text-white">
               Zero<span className="text-emerald-400">Delta</span>
             </h1>
-            <p className="text-xs text-slate-400">Confidential cross-chain delta-neutral intent solver swarm on NEAR</p>
+            <p className="text-xs text-slate-400">Cross-chain delta-neutral carry, confidentially solved, contract-guarded on NEAR</p>
           </div>
         </div>
+        <div className="flex flex-wrap gap-2" aria-label="Hackathon tracks">
+          {TRACKS.map((t, i) => (
+            <Badge key={t} tone={i === 0 ? "emerald" : "cyan"} className="font-mono">
+              [{t}]
+            </Badge>
+          ))}
+        </div>
       </div>
-      <div className="flex flex-wrap gap-2">
-        {TRACKS.map((t) => (
-          <Badge key={t} tone="cyan" className="font-mono">
-            [{t}]
-          </Badge>
-        ))}
-      </div>
+      <Card className="p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-3xl">
+            <h2 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">
+              Autonomous strategies. <span className="text-emerald-300">Contract-enforced boundaries.</span>
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-slate-400">
+              Agents discover and construct opportunities. A deterministic guard checks the proposal. The locked NEAR contract independently verifies raw order
+              parameters before it can authorize an MPC signing request.
+            </p>
+          </div>
+          <EvidenceLegend />
+        </div>
+      </Card>
     </header>
+  );
+}
+
+type EvidenceKind = "live" | "historical" | "simulated";
+const EVIDENCE: Record<EvidenceKind, { label: string; tone: "cyan" | "violet" | "amber"; help: string }> = {
+  live: { label: "LIVE READ-ONLY CHECK", tone: "cyan", help: "Queries the deployed contract or a public API now. Writes nothing." },
+  historical: { label: "HISTORICAL ON-CHAIN PROOF", tone: "violet", help: "A transaction already executed on NEAR testnet. Not created by your click." },
+  simulated: { label: "SIMULATED EXECUTION", tone: "amber", help: "Calculated, quoted, signed locally or prepared. No funds move, nothing is broadcast." },
+};
+
+function EvidenceTag({ kind, className }: { kind: EvidenceKind; className?: string }) {
+  const e = EVIDENCE[kind];
+  return (
+    <Badge tone={e.tone} className={cx("font-mono text-[10px] tracking-wide", className)}>
+      <span title={e.help}>{e.label}</span>
+    </Badge>
+  );
+}
+
+function EvidenceLegend() {
+  return (
+    <ul className="grid shrink-0 gap-1.5 text-[11px] text-slate-400 lg:w-[420px]" aria-label="Evidence labels">
+      {(Object.keys(EVIDENCE) as EvidenceKind[]).map((k) => (
+        <li key={k} className="flex items-start gap-2">
+          <EvidenceTag kind={k} className="shrink-0" />
+          <span>{EVIDENCE[k].help}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function WhyItMatters() {
+  return (
+    <Card className="p-5">
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+        <ShieldCheck className="h-4 w-4 text-emerald-400" /> Why does this matter?
+      </h2>
+      <div className="mt-3 space-y-2 text-xs leading-relaxed text-slate-400">
+        <p>
+          An AI can pick a dangerous trade, and the software that builds the order can be hacked. If either one holds the treasury&apos;s signing key, one bad
+          decision can drain it.
+        </p>
+        <p>
+          In ZeroDelta the key is not held by any agent. It is derived by NEAR Chain Signatures for a smart contract that has no access keys of its own. That
+          contract recomputes the risk from the raw order and checks the order&apos;s fingerprint before it will ask for a signature, so a lying agent gets a
+          failed transaction instead of a signature.
+        </p>
+        <p className="text-slate-500">
+          Limits: the contract trusts the solver&apos;s treasury size and slippage figures, and the TEE is simulated. See docs/SECURITY_MODEL.md.
+        </p>
+      </div>
+    </Card>
   );
 }
 
@@ -227,7 +300,7 @@ function TelemetryBar({
     <Card className="mt-6 p-3">
       <div className="mb-2 flex items-center justify-between px-1">
         <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
-          <Activity className="h-3.5 w-3.5 text-emerald-400" /> Live network telemetry
+          <Activity className="h-3.5 w-3.5 text-emerald-400" /> Live network telemetry <EvidenceTag kind="live" />
           {t ? <span className="text-slate-600">· {new Date(t.fetchedAt).toLocaleTimeString()}</span> : null}
         </div>
         <button
@@ -316,6 +389,7 @@ function OnchainProofStrip({ onchain }: { onchain?: OnchainProofStatus }) {
         <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-slate-500">
           <ShieldCheck className="h-3 w-3 text-emerald-400" /> On-chain Risk Guard (NEAR testnet)
         </span>
+        <EvidenceTag kind="live" />
         <ExplorerLink href={nbAccount(PROOF.contract.accountId)} className="font-mono">
           {PROOF.contract.accountId}
         </ExplorerLink>
@@ -334,6 +408,7 @@ function OnchainProofStrip({ onchain }: { onchain?: OnchainProofStatus }) {
         )}
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <EvidenceTag kind="historical" />
         <span className="text-[11px] text-slate-500">Nearblocks Testnet Explorer:</span>
         {PROOF.transactions.map((tx) => {
           const v = status(tx.hash);
@@ -355,9 +430,11 @@ function OnchainProofPanel({ onchain, run }: { onchain?: OnchainProofStatus; run
   const cfg = onchain.guard.config;
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-          <div className="mb-1 text-[11px] font-semibold text-emerald-300">Deployed Risk Guard v2 contract</div>
+          <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-emerald-300">
+            Deployed Risk Guard v2 contract <EvidenceTag kind="live" />
+          </div>
           <KV label="Contract" value={<ExplorerLink href={onchain.contractUrl}>{onchain.contractId}</ExplorerLink>} />
           <KV label="Solver (only allowed caller)" value={<ExplorerLink href={onchain.accounts.solverUrl}>{onchain.accounts.solver}</ExplorerLink>} />
           <KV label="Account locked" value={onchain.guard.locked ? `TRUE (${onchain.guard.accessKeyCount} access keys)` : `FALSE (${onchain.guard.accessKeyCount ?? "?"} keys)`} />
@@ -377,7 +454,9 @@ function OnchainProofPanel({ onchain, run }: { onchain?: OnchainProofStatus; run
           {onchain.guard.latest ? <KV label="Attestation #0 MPC status" value={onchain.guard.latest.mpc_status} /> : null}
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-          <div className="mb-1 text-[11px] font-semibold text-cyan-300">This run, recomputed by the deployed contract</div>
+          <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-cyan-300">
+            This run, recomputed by the deployed contract <EvidenceTag kind="live" />
+          </div>
           {check ? (
             check.live ? (
               <>
@@ -398,7 +477,9 @@ function OnchainProofPanel({ onchain, run }: { onchain?: OnchainProofStatus; run
             <div className="text-xs text-slate-500">Offline run: on-chain check skipped.</div>
           )}
           <div className="mt-3 border-t border-slate-800 pt-2">
-            <div className="mb-1 text-[11px] font-semibold text-violet-300">Guard-gated Chain Signatures (secp256k1)</div>
+            <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-violet-300">
+              Contract-gated MPC signing proven on NEAR testnet <EvidenceTag kind="historical" />
+            </div>
             <KV
               label="sign() called by"
               value={onchain.mpcGate.verified ? `${onchain.mpcGate.predecessorId} (the contract)` : "not verified"}
@@ -410,6 +491,9 @@ function OnchainProofPanel({ onchain, run }: { onchain?: OnchainProofStatus; run
         </div>
       </div>
       <div className="space-y-2">
+        <div className="flex items-center gap-2 text-[11px] text-slate-500">
+          <EvidenceTag kind="historical" /> Five transactions sent once by the setup script. Statuses below are re-verified live; your clicks create none of them.
+        </div>
         {onchain.transactions.map((tx) => (
           <div
             key={tx.hash}
@@ -453,10 +537,12 @@ function ControlPanel(props: {
   setSlices: (n: number) => void;
   autoSlices: boolean;
   setAutoSlices: (b: boolean) => void;
+  simulateUnprofitable: boolean;
+  setSimulateUnprofitable: (b: boolean) => void;
   running: SwarmMode | null;
   onExecute: (m: SwarmMode) => void;
 }) {
-  const { treasury, setTreasury, pair, setPair, slices, setSlices, autoSlices, setAutoSlices, running, onExecute } = props;
+  const { treasury, setTreasury, pair, setPair, slices, setSlices, autoSlices, setAutoSlices, simulateUnprofitable, setSimulateUnprofitable, running, onExecute } = props;
   return (
     <Card className="p-5">
       <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -534,7 +620,19 @@ function ControlPanel(props: {
         </div>
       </div>
 
-      <div className="mt-6 space-y-3">
+      <label className="mt-4 flex items-start gap-2 text-[11px] text-slate-400">
+        <input
+          type="checkbox"
+          checked={simulateUnprofitable}
+          onChange={(e) => setSimulateUnprofitable(e.target.checked)}
+          className="mt-0.5 accent-amber-500"
+        />
+        <span>
+          Demo override: simulate settlement even if Agent 1 says <span className="font-mono text-amber-300">NO_TRADE</span> (the run is labelled as an
+          override and never shown as profitable)
+        </span>
+      </label>
+      <div className="mt-4 space-y-3">
         <button
           disabled={running !== null}
           onClick={() => onExecute("rebalance")}
@@ -644,8 +742,22 @@ function DecisionBanner({ run, running }: { run: SwarmRun | null; running: Swarm
   }
   const g = run.guardian;
   const approved = g.decision === "APPROVED";
+  const noTrade = run.economics.settlementWithheld;
   return (
-    <Card className={cx("p-5", approved ? "border-emerald-500/40" : "border-rose-500/50")}>
+    <Card className={cx("p-5", noTrade ? "border-amber-500/40" : approved ? "border-emerald-500/40" : "border-rose-500/50")} aria-live="polite">
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        <EvidenceTag kind="simulated" />
+        {run.onchainCheck?.live ? <EvidenceTag kind="live" /> : null}
+        {run.economics.overridden ? <Badge tone="amber">demo override: Agent 1 said NO_TRADE</Badge> : null}
+        {run.mode !== "rebalance" ? <Badge tone="rose">attack simulation: {run.mode === "rogue" ? "rogue planner" : "compromised solver"}</Badge> : null}
+      </div>
+      {noTrade ? (
+        <div className="mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-100">
+          <div className="font-semibold">Agent 1 recommends NO_TRADE: the treasury stays in USDC.</div>
+          <div className="mt-1 text-amber-200/80">{run.economics.reason}</div>
+          <div className="mt-1 text-amber-200/60">The solver and the Risk Guard still ran below so you can inspect them. Tick the demo override to simulate settlement.</div>
+        </div>
+      ) : null}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-4">
           <div className={cx("grid h-14 w-14 place-items-center rounded-2xl", approved ? "bg-emerald-500/15" : "bg-rose-500/15")}>
@@ -653,11 +765,19 @@ function DecisionBanner({ run, running }: { run: SwarmRun | null; running: Swarm
           </div>
           <div>
             <div className={cx("text-lg font-semibold", approved ? "text-emerald-300" : "text-rose-300")}>
-              {approved ? "Intent approved and dry-run settled" : run.mode === "spoofed_metrics" ? "Compromised solver caught by the Risk Guard" : "Intent rejected by the Risk Guard"}
+              {noTrade
+                ? "Risk-approved, but no trade: economics are negative"
+                : approved
+                  ? "Risk-approved order, simulated settlement"
+                  : run.mode === "spoofed_metrics"
+                    ? "Compromised solver caught by the Risk Guard"
+                    : "Intent rejected by the Risk Guard"}
             </div>
             <div className="text-xs text-slate-400">
-              {approved
-                ? `All ${g.checks.length} invariants hold. ${run.settlement.notes[0]}`
+              {noTrade
+                ? `All ${g.checks.length} invariants hold, but no intent was sent and no sign request was prepared.`
+                : approved
+                ? `All ${g.checks.length} invariants hold. ${run.settlement.notes[0]} Contract-gated MPC signing proven on NEAR testnet (historical tx, not this click).`
                 : `Violated: ${g.violations.join(", ")}. The intent was never sent and no MPC signature was requested.${run.onchainCheck?.live ? ` The deployed contract also says ${run.onchainCheck.approved ? "APPROVED" : "REJECTED"}.` : ""}`}
             </div>
           </div>
@@ -666,6 +786,86 @@ function DecisionBanner({ run, running }: { run: SwarmRun | null; running: Swarm
           <Metric label="Net delta" value={`${(g.metrics.netDeltaRatio * 100).toFixed(2)}%`} bad={!g.checks[0].pass} />
           <Metric label="Leverage" value={`${g.metrics.leverage.toFixed(2)}x`} bad={!g.checks[1].pass} />
           <Metric label="Slippage" value={`${g.metrics.maxPriceImpactBps.toFixed(1)} bps`} bad={!g.checks[2].pass} />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function OrderSummary({ o }: { o: OrderParams }) {
+  const m = computeOrderMetrics(o);
+  const c = (v: number) => usd(v / 100, 0);
+  return (
+    <div className="space-y-0.5 font-mono text-[11px]">
+      <div>
+        spot long {c(o.spot_long_usd_cents)} · perp short {c(o.perp_short_usd_cents)} · perp long {c(o.perp_long_usd_cents)}
+      </div>
+      <div>
+        net delta <span className="font-semibold">{(m.net_delta_bps / 100).toFixed(2)}%</span> · leverage <span className="font-semibold">{(m.leverage_x100 / 100).toFixed(2)}x</span>
+      </div>
+    </div>
+  );
+}
+
+function AttackComparison({ run, onchain }: { run: SwarmRun; onchain?: OnchainProofStatus }) {
+  const s = run.solver;
+  const hidden = s.simulationOnlyHiddenOrder;
+  const g = run.guardian;
+  const caught = g.checks.filter((c) => !c.pass);
+  const swapTx = proofTx("PAYLOAD_SWAP_REJECTED");
+  const swapLive = onchain?.transactions.find((t) => t.kind === "PAYLOAD_SWAP_REJECTED");
+  return (
+    <Card className="border-amber-500/40 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
+          <TriangleAlert className="h-4 w-4 text-amber-300" /> Compromised-solver attack, side by side
+        </h3>
+        <EvidenceTag kind="simulated" />
+      </div>
+      <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-4">
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-emerald-100">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">1. Solver claim</div>
+          <p className="mb-2 text-[11px] text-emerald-200/70">The legs it reports to Agent 3 and would send to the contract.</p>
+          <OrderSummary o={s.order} />
+        </div>
+        <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-rose-100">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-rose-300">2. Actual payload</div>
+          <p className="mb-2 text-[11px] text-rose-200/70">What its MPC payload really commits to (and its slices spend).</p>
+          {hidden ? <OrderSummary o={hidden} /> : <span className="text-[11px]">not available</span>}
+          <div className="mt-2 font-mono text-[10px] text-rose-200/60">payload {short(s.hedgeOrderPayloadHex, 10, 6)}</div>
+        </div>
+        <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-3">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-300">3. Risk Guard decision</div>
+          <div className={cx("mb-2 font-mono text-sm font-semibold", g.decision === "APPROVED" ? "text-emerald-300" : "text-rose-300")}>{g.decision}</div>
+          <ul className="space-y-1 text-[11px] text-slate-300">
+            {caught.map((c) => (
+              <li key={c.id}>
+                <span className="font-mono text-rose-300">{c.id}</span>: {c.detail}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[11px] text-slate-500">Delta and leverage pass because they are computed from the claim. The fingerprint check does not trust the claim.</p>
+        </div>
+        <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-3">
+          <div className="mb-1 flex flex-wrap items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-violet-300">4. Contract evidence</div>
+          {run.onchainCheck?.live ? (
+            <div className="mb-2 text-[11px] text-slate-300">
+              <EvidenceTag kind="live" /> <span className="font-mono">check_order_params</span>:{" "}
+              <span className="font-mono text-rose-300">{run.onchainCheck.violations?.map((v) => v.split(":")[0]).join(", ") || "approved"}</span>
+            </div>
+          ) : (
+            <div className="mb-2 text-[11px] text-slate-500">Live contract check unavailable for this run.</div>
+          )}
+          {swapTx ? (
+            <div className="text-[11px] text-slate-300">
+              <EvidenceTag kind="historical" /> the same attack sent on-chain:{" "}
+              <ExplorerLink href={swapTx.explorerUrl} className="font-mono">
+                {short(swapTx.hash, 8, 6)}
+              </ExplorerLink>{" "}
+              failed with <span className="font-mono text-rose-300">{swapTx.expectedError}</span>
+              {swapLive ? <span className="text-slate-500"> ({swapLive.matchesExpectation ? "re-verified now" : "re-verification failed"})</span> : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </Card>
@@ -769,7 +969,7 @@ function Pipeline({ run, phase, running }: { run: SwarmRun | null; phase: number
   };
   if (!run) {
     return (
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-3">
         <StepShell index={1} title="Autonomous Opportunity Scanner" icon={<Radar className="h-4 w-4" />} state={stateFor(1)} />
         <StepShell index={2} title="Confidential TEE Solver" icon={<Cpu className="h-4 w-4" />} state={stateFor(2)} />
         <StepShell index={3} title="Delta Risk Guard" icon={<ShieldCheck className="h-4 w-4" />} state={stateFor(3)} />
@@ -783,7 +983,7 @@ function Pipeline({ run, phase, running }: { run: SwarmRun | null; phase: number
       <StepShell index={1} title="Autonomous Opportunity Scanner" icon={<Radar className="h-4 w-4" />} state="done" durationMs={step("scanner")?.durationMs}>
         <ScannerView run={run} />
       </StepShell>
-      <div className="grid gap-6 2xl:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <StepShell index={2} title="Confidential TEE Solver" icon={<Cpu className="h-4 w-4" />} state="done" durationMs={step("solver")?.durationMs}>
           <SolverView run={run} />
         </StepShell>
@@ -844,7 +1044,7 @@ function ScannerView({ run }: { run: SwarmRun }) {
           </tbody>
         </table>
       </div>
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
           <KV label="Decision" value={s.selection.reason} mono={false} />
           <KV label="Expected treasury APR (net)" value={`${s.expectedTreasuryAprPct.toFixed(2)}%`} />
@@ -1005,7 +1205,10 @@ function GuardianView({ run }: { run: SwarmRun }) {
             }
           />
         ) : null}
-        <KV label="MPC authorization" value={g.mpcSignRequest ? `via ${g.mpcSignRequest.contractId}.record_rebalance` : "none (blocked)"} />
+        <KV
+          label="MPC authorization"
+          value={g.mpcSignRequest ? `prepared, not broadcast: ${g.mpcSignRequest.contractId}.record_rebalance` : run.economics.settlementWithheld ? "none (NO_TRADE)" : "none (blocked)"}
+        />
         <KV label={g.decision === "APPROVED" ? "Approval proof" : "Rejection proof"} value={short(g.decisionHash, 10, 6)} copy={g.decisionHash} />
         <KV label="Guardian signature" value={short(g.guardianSignature, 10, 6)} copy={g.guardianSignature} />
       </div>
@@ -1024,6 +1227,7 @@ function SettlementView({ run }: { run: SwarmRun }) {
           <Layers className="h-4 w-4 text-cyan-400" /> {approved ? "Target cross-chain allocation (dry-run settled)" : "Treasury allocation (unchanged)"}
         </h3>
         <div className="flex flex-wrap gap-1.5">
+          <EvidenceTag kind="simulated" />
           <Badge tone={st.status === "DRY_RUN_SETTLED" ? "emerald" : st.status === "BLOCKED_BY_GUARD" ? "rose" : "amber"}>{st.status}</Badge>
           {sim ? <Badge tone={sim.status === "INVALID_SIGNATURE" ? "rose" : "emerald"}>intents.near: {sim.status}</Badge> : null}
         </div>
@@ -1064,7 +1268,7 @@ function SettlementView({ run }: { run: SwarmRun }) {
           </tbody>
         </table>
       </div>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
+      <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-2">
         {run.mpcAccount?.evmAddress ? (
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
             <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-violet-300">
@@ -1137,6 +1341,8 @@ function ProofInspector({
         {tabs.map((t) => (
           <button
             key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
             className={cx(
               "-mb-px border-b-2 px-3 py-2 text-xs font-medium transition",
@@ -1150,7 +1356,7 @@ function ProofInspector({
 
       <div className="mt-4">
         {tab === "intent" ? (
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div className="space-y-0.5 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
               <KV label="standard" value="nep413" />
               <KV label="recipient" value={s.intent.signed.payload.recipient} />
@@ -1170,6 +1376,7 @@ function ProofInspector({
         {tab === "mpc" ? (
           run.guardian.mpcSignRequest ? (
             <div className="space-y-3">
+              <EvidenceTag kind="simulated" />
               <p className="text-xs text-slate-400">
                 Approved by Agent 3. The solver may only send this <span className="font-mono text-slate-200">record_rebalance</span> call to the Risk Guard contract{" "}
                 <span className="font-mono text-slate-200">{run.guardian.mpcSignRequest.contractId}</span>. The contract recomputes delta and leverage from the raw legs,
@@ -1181,12 +1388,15 @@ function ProofInspector({
             </div>
           ) : (
             <div className="flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-xs text-rose-200">
-              <Lock className="h-4 w-4" /> No record_rebalance call exists for this run: Agent 3 refused it, and the contract would refuse it too (see the On-chain proof tab).
+              <Lock className="h-4 w-4" />
+              {run.economics.settlementWithheld
+                ? "No record_rebalance call was prepared: Agent 3 approved the risk, but Agent 1 recommends NO_TRADE, so no signature is requested."
+                : "No record_rebalance call exists for this run: Agent 3 refused it, and the contract would refuse it too (see the On-chain proof tab)."}
             </div>
           )
         ) : null}
         {tab === "attestation" ? (
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-2">
             <CodeBlock value={s.attestation} />
             <CodeBlock value={{ verification: run.guardian.attestation, envelope: { ...s.envelope, slices: `${s.envelope.slices.length} ciphertexts` } }} />
           </div>

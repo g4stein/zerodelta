@@ -104,6 +104,11 @@ export interface SwarmRequest {
   pair: PairSelection;
   /** Initial TWAP slice count, or "auto" to let Agent 1 size it from live liquidity. */
   sliceCount: number | "auto";
+  /**
+   * Demo override: run the dry-run settlement even when Agent 1 recommends NO_TRADE.
+   * The run is labelled as an override; it never makes the trade look profitable.
+   */
+  simulateUnprofitable?: boolean;
 }
 
 export const LIMITS = {
@@ -129,5 +134,7 @@ export function parseSwarmRequest(input: unknown): SwarmRequest {
     const sliceRaw = Number(body.sliceCount);
     sliceCount = Number.isFinite(sliceRaw) ? Math.min(LIMITS.sliceMax, Math.max(LIMITS.sliceMin, Math.round(sliceRaw))) : "auto";
   }
-  return { mode, pair, treasuryUsd, sliceCount };
+  const req: SwarmRequest = { mode, pair, treasuryUsd, sliceCount };
+  if (body.simulateUnprofitable === true) req.simulateUnprofitable = true;
+  return req;
 }
