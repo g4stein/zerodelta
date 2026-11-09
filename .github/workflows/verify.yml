@@ -1,0 +1,88 @@
+name: verify
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      live:
+        description: "Also run the live checks (public NEAR RPC, 1Click, Hyperliquid). Can fail for reasons outside this repo."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: typecheck, tests, build, offline verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Offline verification (no network)
+        run: npm run verify:offline
+        env:
+          VERIFY_REPORT_PATH: verify-report.offline.json
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f verify-report.offline.json ]; then
+            node -e 'const r=require("./verify-report.offline.json");console.log(`## Offline verification: ${r.overall}\n\ncommit \`${r.source.commit}\` · ${r.totals.PASS} passed · ${r.totals.SKIP} skipped (live-only) · ${r.totals.FAIL} failed`)' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verify-report-offline-${{ github.sha }}
+          path: verify-report.offline.json
+
+  contract:
+    name: Rust contract tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.81 (matches the deployed build)
+        run: rustup toolchain install 1.81.0 --profile minimal && rustup default 1.81.0
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/risk-guard/target
+          key: cargo-${{ hashFiles('contracts/risk-guard/Cargo.lock') }}
+      - name: cargo test (unit + adversarial)
+        working-directory: contracts/risk-guard
+        run: cargo test --locked
+      - name: Deployed WASM is unchanged
+        run: |
+          echo "51ada920b44f5653e8a9293ebac08fbeee3f2d280d77efacfede33b68ca71ce7  contracts/risk-guard/res/zerodelta_risk_guard.wasm" | sha256sum -c -
+
+  live:
+    name: live verification (optional)
+    if: github.event_name == 'workflow_dispatch' && inputs.live
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+        env:
+          VERIFY_REPORT_PATH: verify-report.live.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verify-report-live-${{ github.sha }}
+          path: verify-report.live.json

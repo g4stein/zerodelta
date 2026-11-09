@@ -88,6 +88,14 @@ export interface Opportunity {
 }
 
 export interface ScannerResult {
+  /**
+   * TRADE: the chosen market has positive estimated net carry on live data.
+   * NO_TRADE: no candidate (or the manually chosen one) earns positive net carry,
+   * or live data is missing. The plan is still built so the pipeline can be inspected,
+   * but the orchestrator withholds settlement unless a demo override is set.
+   */
+  recommendation: "TRADE" | "NO_TRADE";
+  recommendationReason: string;
   opportunityMatrix: Opportunity[];
   selected: Opportunity;
   selection: { mode: "auto" | "manual"; requested: PairSelection; chosen: PairId; bestByNetCarry: PairId; reason: string };
@@ -251,6 +259,8 @@ export function runScannerAgent(input: {
   tokens: OneClickTokenFeed;
   funding: FundingFeed;
   costs: Record<PairId, CostProbe>;
+  /** When true (live mode), a recommendation needs live funding and at least one live cost probe. */
+  requireLiveData?: boolean;
 }): ScannerResult {
   const evaluated = PAIR_IDS.flatMap((asset) => {
     const perp = input.funding.markets[PAIRS[asset].perpSymbol];
@@ -272,8 +282,17 @@ export function runScannerAgent(input: {
       ? `${best.asset} ranks #1 of ${opportunityMatrix.length}: ${best.netCarryAprPct}% net carry after ${best.estimatedRoundTripCostBps} bps round-trip costs.`
       : `No candidate has positive net carry right now; ${best.asset} is the least negative. A real treasury would stay in USDC; the plan is produced so the pipeline can be inspected.`;
   const plan = buildDeltaNeutralPlan(selected.asset, input.treasuryUsd, selected);
+  const liveDataOk = !input.requireLiveData || (input.funding.live && Object.values(input.costs).some((c) => c.source === "1click-live"));
+  const recommendation: ScannerResult["recommendation"] = selected.eligible && liveDataOk ? "TRADE" : "NO_TRADE";
+  const recommendationReason = !liveDataOk
+    ? "NO_TRADE: live funding or 1Click cost data is unavailable; ZeroDelta does not recommend trades on snapshot data."
+    : selected.eligible
+      ? `TRADE: ${selected.asset} earns an estimated ${selected.netCarryAprPct}% net carry (${selected.treasuryNetAprPct}% on the whole treasury). Estimate, not a guarantee: funding changes hourly.`
+      : `NO_TRADE: ${selected.asset} ${selected.verdict}. ${manual ? "The manual choice" : "No candidate"} has positive estimated net carry, so a real treasury would stay in USDC.`;
   const spotUsd = input.treasuryUsd * selected.spotFraction;
   return {
+    recommendation,
+    recommendationReason,
     opportunityMatrix,
     selected,
     selection: { mode: manual ? "manual" : "auto", requested: input.pair, chosen: selected.asset, bestByNetCarry: best.asset, reason },

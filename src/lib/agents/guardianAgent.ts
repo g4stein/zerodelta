@@ -16,10 +16,11 @@
  *   4. TEE attestation    signature, measurement, key, binding, freshness
  *   5. NEP-413 signature  ed25519 valid, recipient, signer, deadline
  *   6. Envelope integrity every slice decrypts, matches commitment and sums to the order
- *   7. Order-to-payload   raw order legs re-derived from the plan == the solver's order,
- *      binding            and keccak256(canonical order) == the payload MPC would sign
- *   8. Anti-replay +      nonce strictly above every accepted nonce (on-chain + local),
- *      guard-gated MPC    and the sign request is routed through the Risk Guard contract
+ *   7. Order-to-payload   treasury + pair match the orchestrator's request (not the solver's
+ *      binding            word), raw legs re-derived from the plan == the solver's order, and
+ *                         keccak256(canonical order) == the payload MPC would sign
+ *   8. Anti-replay +      nonce not previously approved, above the contract's last_nonce, and
+ *      guard-gated MPC    no older than 5 minutes; the sign request is routed via the contract
  */
 import nacl from "tweetnacl";
 import { keyToImplicitAddress } from "near-api-js";
@@ -29,7 +30,7 @@ import { computeHedgePayloadHex, computeOrderMetrics, orderParamsFromPlan, sameO
 import { EXPECTED_SOLVER_MEASUREMENT, computeReportData, verifyAttestation, type AttestationVerification } from "../crypto/attestation";
 import { bytesToHex, fromBase64, hashObject, hexToBytes, sha256Hex } from "../crypto/encoding";
 import type { OrderSlice, SolverResult } from "./solverAgent";
-import { PAIRS, USDC_NEAR_ASSET, type RebalancePlan } from "../swarm/types";
+import { PAIRS, USDC_NEAR_ASSET, type PairId, type RebalancePlan } from "../swarm/types";
 
 export const RISK_POLICY = {
   maxNetDeltaRatio: 0.02,
@@ -198,7 +199,11 @@ function checkEnvelope(solver: SolverResult, guardian: GuardianIdentity): { pass
       return JSON.parse(new TextDecoder().decode(opened)) as OrderSlice;
     });
     const total = decrypted.reduce((s, x) => s + BigInt(x.amountIn), 0n);
-    if (!spotQuote || total.toString() !== spotQuote.amountIn) throw new Error("slices do not sum to the quoted spot order");
+    if (!spotQuote) throw new Error("no spot quote to compare slices against");
+    if (total.toString() !== spotQuote.amountIn) {
+      const usdc = (v: bigint | string) => (Number(v) / 1e6).toLocaleString("en-US", { maximumFractionDigits: 2 });
+      throw new Error(`slices spend ${usdc(total)} USDC but the quoted spot order is ${usdc(spotQuote.amountIn)} USDC`);
+    }
     if (decrypted.some((x) => x.destinationAsset !== spotAsset)) throw new Error("slice destination differs from plan asset");
     const { envelopeHash, envelopeId, ...body } = env;
     if (hashObject(body) !== envelopeHash) throw new Error("envelope hash mismatch");
@@ -231,14 +236,46 @@ function checkIntent(solver: SolverResult): { pass: boolean; detail: string } {
   return { pass: true, detail: "tweetnacl + near-api-js both verify; recipient, signer and deadline valid" };
 }
 
-/** Nonces this guardian has already approved (process memory; the contract keeps its own). */
+/**
+ * Nonces this guardian has approved (process memory, bounded). Exact-match lookup, not
+ * "highest so far": concurrent runs can finish out of order and must not reject each other.
+ * The contract additionally requires strictly increasing nonces, so on-chain submission
+ * must be sequential in nonce order.
+ */
+const APPROVED_NONCE_CAP = 10_000;
 const approvedNonces = new Set<number>();
-let highestApprovedNonce = 0;
+function rememberApprovedNonce(nonce: number) {
+  approvedNonces.add(nonce);
+  if (approvedNonces.size > APPROVED_NONCE_CAP) {
+    const oldest = approvedNonces.values().next().value;
+    if (oldest !== undefined) approvedNonces.delete(oldest);
+  }
+}
+/** Orders older than this (by nonce timestamp, nonce = ms × 1000) are stale. */
+export const ORDER_MAX_AGE_MS = 5 * 60_000;
 
-function checkBinding(solver: SolverResult): { pass: boolean; detail: string; expectedPayloadHex: string; recomputed: OrderParams } {
-  const recomputed = orderParamsFromPlan(solver.executablePlan, solver.maxPriceImpactBps, solver.order.nonce);
+/** Values the guardian takes from the orchestrator / user, never from the solver. */
+export interface TrustedRunInputs {
+  treasuryUsd: number;
+  pair: PairId;
+}
+
+function checkBinding(solver: SolverResult, expected?: TrustedRunInputs): { pass: boolean; detail: string; expectedPayloadHex: string; recomputed: OrderParams } {
+  let recomputed: OrderParams;
+  try {
+    recomputed = orderParamsFromPlan(solver.executablePlan, solver.maxPriceImpactBps, solver.order.nonce);
+  } catch (err) {
+    // Hostile input (unsafe integers, bad nonce) must be rejected, never crash the guard.
+    return { pass: false, expectedPayloadHex: "", recomputed: solver.order, detail: `INVALID_ORDER: ${err instanceof Error ? err.message : String(err)}` };
+  }
   const expectedPayloadHex = computeHedgePayloadHex(RISK_GUARD_CONTRACT_ID, recomputed);
   const metrics = computeOrderMetrics(recomputed);
+  if (expected && solver.executablePlan.treasuryUsd !== expected.treasuryUsd) {
+    return { pass: false, expectedPayloadHex, recomputed, detail: `TREASURY_MISMATCH: solver plan says $${solver.executablePlan.treasuryUsd}, request says $${expected.treasuryUsd}` };
+  }
+  if (expected && (solver.executablePlan.pair !== expected.pair || solver.order.asset_symbol !== PAIRS[expected.pair].perpSymbol)) {
+    return { pass: false, expectedPayloadHex, recomputed, detail: `ASSET_MISMATCH: solver used ${solver.order.asset_symbol}/${solver.executablePlan.pair}, request is ${expected.pair}` };
+  }
   if (!sameOrder(recomputed, solver.order)) {
     return { pass: false, expectedPayloadHex, recomputed, detail: "solver's order legs differ from the legs re-derived from its own plan" };
   }
@@ -261,11 +298,12 @@ function checkBinding(solver: SolverResult): { pass: boolean; detail: string; ex
   };
 }
 
-function checkReplay(nonce: number, lastAcceptedNonce: number): { pass: boolean; detail: string } {
+function checkReplay(nonce: number, lastAcceptedNonce: number, now: Date): { pass: boolean; detail: string } {
   if (!Number.isSafeInteger(nonce) || nonce <= 0) return { pass: false, detail: "nonce must be a positive safe integer (u64)" };
-  if (approvedNonces.has(nonce) || nonce <= highestApprovedNonce) {
-    return { pass: false, detail: `NONCE_ALREADY_USED: ${nonce} <= highest approved ${highestApprovedNonce}` };
-  }
+  if (approvedNonces.has(nonce)) return { pass: false, detail: `NONCE_ALREADY_USED: ${nonce} was already approved by this guard` };
+  const ageMs = now.getTime() - Math.floor(nonce / 1000);
+  if (ageMs > ORDER_MAX_AGE_MS) return { pass: false, detail: `STALE_ORDER: nonce timestamp is ${Math.round(ageMs / 1000)} s old (max ${ORDER_MAX_AGE_MS / 1000} s)` };
+  if (ageMs < -60_000) return { pass: false, detail: "FUTURE_NONCE: nonce timestamp is more than 60 s in the future" };
   if (nonce <= lastAcceptedNonce) return { pass: false, detail: `NONCE_ALREADY_USED: ${nonce} <= on-chain last_nonce ${lastAcceptedNonce}` };
   return {
     pass: true,
@@ -280,6 +318,8 @@ export function runGuardianAgent(input: {
   trustedEnclaveKeys: string[];
   /** Last nonce accepted by the deployed contract (0 offline). */
   lastAcceptedNonce?: number;
+  /** Treasury and pair from the request; when given, the solver's plan must match them. */
+  expected?: TrustedRunInputs;
   now?: Date;
 }): GuardianDecision {
   const { solver } = input;
@@ -305,8 +345,8 @@ export function runGuardianAgent(input: {
     .map(([k]) => k);
   const intentCheck = checkIntent(solver);
   const envCheck = checkEnvelope(solver, guardian);
-  const binding = checkBinding(solver);
-  const replay = checkReplay(solver.order.nonce, input.lastAcceptedNonce ?? 0);
+  const binding = checkBinding(solver, input.expected);
+  const replay = checkReplay(solver.order.nonce, input.lastAcceptedNonce ?? 0, now);
 
   const checks: PolicyCheck[] = [
     {
@@ -370,7 +410,7 @@ export function runGuardianAgent(input: {
       label: "Order-to-payload binding",
       pass: binding.pass,
       observed: binding.pass ? "bound" : "spoofed",
-      threshold: "payload == keccak256(raw legs)",
+      threshold: "trusted treasury/pair; payload == keccak256(raw legs)",
       formula: "keccak256(domain|contract|asset|treasury|spot|short|long|collateral|slip|nonce)",
       detail: binding.detail,
     },
@@ -380,7 +420,7 @@ export function runGuardianAgent(input: {
       pass: replay.pass,
       observed: replay.pass ? `nonce ${solver.order.nonce}` : "replay",
       threshold: "nonce > last accepted",
-      formula: "nonce > max(on-chain last_nonce, approved nonces); sign only via contract",
+      formula: "nonce unused, > on-chain last_nonce, age <= 5 min; sign only via contract",
       detail: replay.detail,
     },
   ];
@@ -405,8 +445,7 @@ export function runGuardianAgent(input: {
 
   let mpcSignRequest: MpcSignRequest | null = null;
   if (decision === "APPROVED") {
-    approvedNonces.add(solver.order.nonce);
-    highestApprovedNonce = Math.max(highestApprovedNonce, solver.order.nonce);
+    rememberApprovedNonce(solver.order.nonce);
     mpcSignRequest = {
       contractId: RISK_GUARD_CONTRACT_ID,
       methodName: "record_rebalance",

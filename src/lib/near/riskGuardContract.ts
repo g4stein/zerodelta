@@ -17,7 +17,7 @@ import { MPC_SIGNER_CONTRACT, RISK_GUARD_CONTRACT_ID } from "./deployment";
 import type { OrderParams } from "./orderCommitment";
 
 export const NEARBLOCKS_TESTNET = "https://testnet.nearblocks.io";
-export const TESTNET_ARCHIVAL_RPC = ["https://archival-rpc.testnet.near.org", "https://archival-rpc.testnet.fastnear.com"];
+export const TESTNET_ARCHIVAL_RPC = ["https://archival-rpc.testnet.fastnear.com", "https://archival-rpc.testnet.near.org"];
 export const MPC_CONTRACT = MPC_SIGNER_CONTRACT;
 
 export type ProofTxKind =
@@ -192,7 +192,7 @@ export interface OnchainGuardState {
 
 export async function getAccessKeyCount(accountId: string): Promise<number | undefined> {
   const r = await nearRpc<{ keys: unknown[] }>("testnet", "query", { request_type: "view_access_key_list", finality: "final", account_id: accountId });
-  return r.ok ? r.result.keys.length : undefined;
+  return r.ok && Array.isArray(r.result?.keys) ? r.result.keys.length : undefined;
 }
 
 export async function getOnchainGuardState(): Promise<OnchainGuardState> {
@@ -203,13 +203,14 @@ export async function getOnchainGuardState(): Promise<OnchainGuardState> {
     getAccessKeyCount(RISK_GUARD_CONTRACT),
   ]);
   if (!config.ok) return { ...base, live: false, error: config.error };
+  if (!config.value || typeof config.value !== "object" || !config.value.policy) return { ...base, live: false, error: "malformed get_config response" };
   const count = config.value.attestation_count;
   let latest: OnchainAttestation | null = null;
   if (count > 0) {
     const r = await viewFunction<OnchainAttestation | null>("testnet", RISK_GUARD_CONTRACT, "get_attestation", { index: count - 1 });
     latest = r.ok ? r.value : null;
   }
-  const codeHash = account.ok ? account.result.code_hash : undefined;
+  const codeHash = account.ok && typeof account.result?.code_hash === "string" ? account.result.code_hash : undefined;
   return {
     ...base,
     live: true,
@@ -342,7 +343,7 @@ function methodOf(actions: unknown[] | undefined): string | undefined {
 /** `EXPERIMENTAL_tx_status` (includes receipts + predecessors) on archival endpoints, then the regular RPC. */
 export async function fetchTxStatus(hash: string, senderAccountId: string): Promise<{ ok: true; result: RpcTxStatus; endpoint: string } | { ok: false; error: string }> {
   const errors: string[] = [];
-  for (const endpoint of [...TESTNET_ARCHIVAL_RPC, "https://rpc.testnet.near.org"]) {
+  for (const endpoint of [...TESTNET_ARCHIVAL_RPC, "https://test.rpc.fastnear.com", "https://rpc.testnet.near.org"]) {
     try {
       const res = await fetchWithTimeout(
         endpoint,
@@ -368,6 +369,9 @@ export async function verifyProofTx(tx: ProofTx): Promise<TxVerification> {
   const r = await fetchTxStatus(tx.hash, tx.signerId);
   if (!r.ok) return { ...base, found: false, matchesExpectation: false, onchainStatus: "NOT_FOUND", detail: r.error };
   const t = r.result;
+  if (!t?.status || !t.transaction || !Array.isArray(t.receipts_outcome)) {
+    return { ...base, found: false, matchesExpectation: false, onchainStatus: "NOT_FOUND", detail: "malformed tx status response" };
+  }
   const failed = t.status.Failure !== undefined;
   const errorMessage = failed ? JSON.stringify(t.status.Failure) : undefined;
   const logs = t.receipts_outcome.flatMap((o) => o.outcome.logs);

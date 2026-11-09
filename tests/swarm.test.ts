@@ -487,7 +487,8 @@ describe("TypeScript mirror of the Rust contract", () => {
 
 describe("Swarm orchestrator (offline mode)", () => {
   it("runs the full rebalance pipeline with a valid hash-chained audit trail", async () => {
-    const run = await runSwarm({ mode: "rebalance", pair: "NEAR", treasuryUsd: 50_000, sliceCount: 8 }, { live: false });
+    const run = await runSwarm({ mode: "rebalance", pair: "AUTO", treasuryUsd: 50_000, sliceCount: 8 }, { live: false });
+    expect(run.economics.recommendation).toBe("TRADE");
     expect(run.guardian.decision).toBe("APPROVED");
     expect(run.settlement.status).toBe("SKIPPED_OFFLINE");
     expect(run.steps.map((s) => s.agent)).toEqual(["scanner", "solver", "guardian", "settlement"]);

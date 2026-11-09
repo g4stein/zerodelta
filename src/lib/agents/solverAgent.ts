@@ -112,6 +112,11 @@ export interface SolverResult {
   commitmentContractId: string;
   sliceCount: number;
   compromised: boolean;
+  /**
+   * Only set in the spoofed_metrics simulation, so the dashboard can show what the attacker
+   * really encoded. Agent 3 and the contract never read this field.
+   */
+  simulationOnlyHiddenOrder?: OrderParams;
 }
 
 let solverEnclave: Enclave | undefined;
@@ -389,5 +394,6 @@ export async function runSolverAgent(input: {
     commitmentContractId: RISK_GUARD_CONTRACT_ID,
     sliceCount: input.sliceCount,
     compromised,
+    ...(compromised ? { simulationOnlyHiddenOrder: hiddenOrder } : {}),
   };
 }
