@@ -10,13 +10,25 @@
  *   6. Live Hyperliquid funding feed
  *   7. Deterministic risk-policy invariants
  *   8. Full live 3-agent swarm: hedged rebalance approved, rogue trade rejected
+ *   9. On-chain testnet proof: deployed Risk Guard contract, policy, recorded
+ *      attestation, and every transaction in testnet-proof.json re-checked via
+ *      the NEAR `tx` RPC (archival), plus offline MPC signature recovery
  *
  * Result levels: PASS, WARN (live source unavailable, labelled fallback used),
  * SKIP (offline mode), FAIL. Exit code is 1 if anything FAILs, else 0.
  *
  * Offline mode (no network): `ZERODELTA_OFFLINE=1 npm run verify` or `npm run verify -- --offline`.
  */
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import {
+  TESTNET_PROOF,
+  checkRebalanceOnchain,
+  getOnchainGuardState,
+  verifyMpcSignature,
+  verifyProofTx,
+} from "../src/lib/near/riskGuardContract";
+import { viewFunction } from "../src/lib/near/rpcClient";
+import { sha256Bytes, toBase58 } from "../src/lib/crypto/encoding";
 import { KeyPair, KeyPairSigner, type KeyPairEd25519 } from "near-api-js";
 import {
   buildIntentMessage,
@@ -214,12 +226,45 @@ async function main() {
     check("  intents.near accepted the swarm's signed intent", r.settlement.status === "DRY_RUN_SETTLED", `${r.settlement.simulation?.status}: ${r.settlement.simulation?.panicMessage ?? "executed"}`);
     check("  Chain Signatures request prepared for hedge", Boolean(g.mpcSignRequest) && Boolean(r.mpcAccount?.evmAddress), `${MPC_CONTRACT}.sign payload ${g.mpcSignRequest?.args.request.payload_v2.Ecdsa.slice(0, 16)}… → ${r.mpcAccount?.evmAddress}`);
     check("  Approval proof + audit chain verify", verifyGuardianDecision(g) && verifyAuditChain(r.audit.events), `decision ${g.decisionHash.slice(0, 16)}…, audit root ${r.audit.rootHash.slice(0, 16)}…`);
+    check("  Deployed testnet contract agrees (check_rebalance)", r.onchainCheck?.live === true && r.onchainCheck.approved === true, `${r.onchainCheck?.contractId}: ${r.onchainCheck?.approved ? "APPROVED" : (r.onchainCheck?.error ?? r.onchainCheck?.violations?.join("; "))}`);
   });
   await live("Rogue AI directional gamble", async () => {
     const r = await runSwarm({ mode: "rogue", pair: "NEAR", treasuryUsd: 50_000, sliceCount: 8 }, { live: true });
     const g = r.guardian;
     check("Rogue AI directional gamble", g.decision === "REJECTED" && r.settlement.status === "BLOCKED_BY_GUARD" && g.mpcSignRequest === null, `${g.decision}; net delta ${(g.metrics.netDeltaRatio * 100).toFixed(0)}%, leverage ${g.metrics.leverage.toFixed(2)}x; violations ${g.violations.join(", ")}`);
     check("  Rejection proof signature verifies", verifyGuardianDecision(g), `guardian ${g.guardianPublicKey.slice(0, 16)}…`);
+    check("  Deployed testnet contract also rejects it", r.onchainCheck?.live === true && r.onchainCheck.approved === false, `${r.onchainCheck?.contractId}: ${r.onchainCheck?.violations?.join("; ") ?? r.onchainCheck?.error}`);
+  });
+
+  // 9 ------------------------------------------------------------------------
+  heading("9. On-chain NEAR testnet proof (deployed Risk Guard + real transactions)");
+  const proof = TESTNET_PROOF;
+  check("testnet-proof.json lists the deployed contract and ≥ 2 transactions", Boolean(proof.contract.accountId) && proof.transactions.length >= 2, `${proof.contract.accountId}; ${proof.transactions.length} txs; guard ${proof.accounts.guard}, solver ${proof.accounts.solver}`);
+  const wasm = readFileSync(proof.contract.wasmPath);
+  const wasmB58 = toBase58(sha256Bytes(new Uint8Array(wasm)));
+  check("Committed contract WASM hashes to the recorded code hash", wasmB58 === proof.contract.codeHash, `sha256(${proof.contract.wasmPath}) = ${wasmB58}`);
+  const mpcSig = verifyMpcSignature(proof.mpcSignature);
+  check("MPC secp256k1 signature recovers to the guard's derived key (offline)", mpcSig.valid, mpcSig.valid ? `signer ${proof.mpcSignature.evmAddress}, payload ${proof.mpcSignature.payloadHex.slice(0, 16)}…` : String(mpcSig.reason ?? "mismatch"));
+  for (const tx of proof.transactions) {
+    await live(tx.label, async () => {
+      const v = await verifyProofTx(tx);
+      check(tx.label, v.matchesExpectation, `${v.onchainStatus} · ${tx.signerId} -> ${tx.receiverId}.${tx.methodName} · ${v.detail} · via ${v.endpoint ?? "n/a"} · ${tx.explorerUrl}`);
+    });
+  }
+  await live("Live contract code hash + policy 200 / 300 / 25", async () => {
+    const g = await getOnchainGuardState();
+    const p = g.policy;
+    const ok = g.live && g.codeHashMatchesProof === true && p?.max_delta_bps === 200 && p?.max_leverage_x100 === 300 && p?.max_slippage_bps === 25;
+    check("Live contract code hash + policy 200 / 300 / 25", ok, g.live ? `code ${g.codeHash}; policy ${p?.max_delta_bps}/${p?.max_leverage_x100}/${p?.max_slippage_bps}; ${g.attestationCount} attestation(s)` : String(g.error));
+  });
+  await live("Recorded attestation matches the proof decision hash", async () => {
+    const r = await viewFunction<{ decision_hash: string; recorded_by: string; net_delta_bps: number } | null>("testnet", proof.contract.accountId, "get_attestation", { index: proof.recordedRebalance.index });
+    const ok = r.ok && r.value?.decision_hash === proof.recordedRebalance.decisionHash && r.value?.recorded_by === proof.accounts.solver;
+    check("Recorded attestation matches the proof decision hash", ok, r.ok ? `index ${proof.recordedRebalance.index}: decision ${r.value?.decision_hash.slice(0, 16)}… by ${r.value?.recorded_by}` : r.error);
+  });
+  await live("Contract check_rebalance approves hedged / rejects rogue metrics", async () => {
+    const [a, b] = await Promise.all([checkRebalanceOnchain(proof.recordedRebalance.metrics), checkRebalanceOnchain(proof.rogueAttempt.metrics)]);
+    check("Contract check_rebalance approves hedged / rejects rogue metrics", a.approved === true && b.approved === false, `hedged: ${a.approved ? "APPROVED" : "REJECTED"}; rogue: ${b.approved ? "APPROVED" : `REJECTED (${b.violations?.join("; ")})`}`);
   });
 
   // Summary --------------------------------------------------------------------

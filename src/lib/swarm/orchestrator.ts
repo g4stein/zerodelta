@@ -3,8 +3,10 @@
  * (dry-run) settlement, and records a hash-chained audit trail.
  *
  * Settlement is a dry run: the signed intent is executed by the real
- * `intents.near` contract through its `simulate_intents` view method, and the
- * Chain Signatures request is prepared but not broadcast. No funds move.
+ * `intents.near` contract through its `simulate_intents` view method, the
+ * deployed testnet Risk Guard contract re-checks the metrics (`check_rebalance`),
+ * and the Chain Signatures request is prepared but not broadcast. No funds move.
+ * The one-time on-chain proof transactions live in testnet-proof.json.
  */
 import { createEphemeralSigner } from "../near/nep413";
 import {
@@ -27,6 +29,7 @@ import {
   type GuardianDecision,
 } from "../agents/guardianAgent";
 import { hashObject, sha256Hex } from "../crypto/encoding";
+import { checkRebalanceOnchain, toOnchainMetrics, type OnchainPolicyCheck } from "../near/riskGuardContract";
 import { PAIRS, type RebalancePlan, type SwarmRequest } from "./types";
 
 export type AgentName = "orchestrator" | "scanner" | "solver" | "guardian" | "settlement";
@@ -81,6 +84,8 @@ export interface SwarmRun {
   injectedPlan: RebalancePlan | null;
   solver: SolverResult;
   guardian: GuardianDecision;
+  /** Result of the deployed testnet contract's check_rebalance view on this run's metrics (null offline). */
+  onchainCheck: OnchainPolicyCheck | null;
   mpcAccount: DerivedMpcAccount | null;
   settlement: Settlement;
   steps: AgentStep[];
@@ -293,6 +298,12 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
   });
   audit.record("guardian", approved ? "INTENT_APPROVED" : "INTENT_REJECTED", `decision hash ${guardian.decisionHash.slice(0, 16)}…`, guardian.decisionRecord);
 
+  // ---- Independent on-chain policy check (deployed testnet Risk Guard) -------
+  // Runs the deployed contract's own check_rebalance logic on the guardian's metrics.
+  const onchainCheckPromise: Promise<OnchainPolicyCheck | null> = live
+    ? checkRebalanceOnchain(toOnchainMetrics(guardian.metrics))
+    : Promise.resolve(null);
+
   // ---- Settlement (dry run) -------------------------------------------------
   let mpcAccount: DerivedMpcAccount | null = null;
   const st = await timed(async (): Promise<Settlement> => {
@@ -335,11 +346,23 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
         derived.live
           ? `Hedge account controlled via Chain Signatures: ${derived.evmAddress} (derived live by ${HEDGE_DERIVATION_PATH}).`
           : `MPC derivation unavailable: ${derived.error}`,
-        "The MPC sign request is prepared but not broadcast (it needs a funded NEAR testnet account).",
+        "This run's MPC sign request is prepared, not broadcast. The same request was executed once on testnet; see the On-chain proof tab.",
       ],
     };
   });
   const settlement = st.value;
+  const onchainCheck = await onchainCheckPromise;
+  if (onchainCheck) {
+    const agrees = onchainCheck.live ? onchainCheck.approved === approved : null;
+    audit.record(
+      "guardian",
+      "ONCHAIN_POLICY_CHECK",
+      onchainCheck.live
+        ? `${onchainCheck.contractId}.check_rebalance -> ${onchainCheck.approved ? "APPROVED" : `REJECTED (${onchainCheck.violations?.join("; ")})`}; agrees with off-chain guard: ${agrees}`
+        : `on-chain check unavailable: ${onchainCheck.error}`,
+      onchainCheck,
+    );
+  }
   steps.push({
     agent: "settlement",
     title: "Dry-run Settlement",
@@ -367,6 +390,7 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
     injectedPlan,
     solver,
     guardian,
+    onchainCheck,
     mpcAccount,
     settlement,
     steps,
