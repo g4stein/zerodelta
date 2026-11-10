@@ -182,7 +182,9 @@ Full threat model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). In short, t
 
 ## Built with, and disclosure
 
-Next.js 16, React 19, Tailwind 4, near-api-js 7, near-sdk 5.5 (Rust), tweetnacl, @noble/hashes, @noble/curves, @msgpack/msgpack, bs58, lucide-react, Vitest, tsx. All code was written during the hackathon window (first commit 2026-11-08) with an AI coding agent (Kiro); the hackathon rules allow AI-written code and libraries (HACKATHON.md Q-005). If the author submits a second NEAR HACKATHON project, both READMEs must name each other (Q-015).
+Next.js 16, React 19, Tailwind 4, near-api-js 7, near-sdk 5.5 (Rust), tweetnacl, @noble/hashes, @noble/curves, @msgpack/msgpack, bs58, lucide-react, Vitest, tsx. All code was written during the hackathon window (first commit 2026-11-08) with an AI coding agent (Kiro); the hackathon rules allow AI-written code and libraries (HACKATHON.md Q-005).
+
+**Other independent NEAR Hackathon submission by this author: ProofMerge — https://github.com/g4stein/ProofMerge. These projects use separate repositories, contracts, architectures and demonstrations** (HACKATHON.md Q-015).
 
 **Repo map:** contract [`contracts/risk-guard/`](contracts/risk-guard/) · agents [`src/lib/agents/`](src/lib/agents/) · NEAR integration [`src/lib/near/`](src/lib/near/) · Hyperliquid readiness [`src/lib/hyperliquid/`](src/lib/hyperliquid/) · API [`src/app/api/swarm/route.ts`](src/app/api/swarm/route.ts) · UI [`src/app/page.tsx`](src/app/page.tsx) · harness [`scripts/verify-hackathon.ts`](scripts/verify-hackathon.ts) · setup [`scripts/testnet-setup.ts`](scripts/testnet-setup.ts) · docs [`docs/`](docs/)
 
