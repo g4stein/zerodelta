@@ -185,8 +185,10 @@ export function evaluateRiskInvariants(m: Pick<RiskMetrics, "netDeltaRatio" | "l
 function checkEnvelope(solver: SolverResult, guardian: GuardianIdentity): { pass: boolean; detail: string } {
   const env = solver.envelope;
   const spotQuote = solver.quotes.find((q) => q.legId === "spot-long");
-  const spotAsset = PAIRS[solver.executablePlan.pair].spotAssetId;
   try {
+    const pair = PAIRS[solver.executablePlan.pair];
+    if (!pair) throw new Error(`unknown pair ${String(solver.executablePlan.pair)}`);
+    const spotAsset = pair.spotAssetId;
     const decrypted: OrderSlice[] = env.slices.map((s) => {
       const opened = nacl.box.open(
         fromBase64(s.ciphertext),
@@ -298,8 +300,10 @@ function checkBinding(solver: SolverResult, expected?: TrustedRunInputs): { pass
   };
 }
 
-function checkReplay(nonce: number, lastAcceptedNonce: number, now: Date): { pass: boolean; detail: string } {
+function checkReplay(nonce: number, lastAcceptedNonce: number | null, now: Date): { pass: boolean; detail: string } {
   if (!Number.isSafeInteger(nonce) || nonce <= 0) return { pass: false, detail: "nonce must be a positive safe integer (u64)" };
+  // Fail closed: without the contract's last_nonce the replay check cannot run.
+  if (lastAcceptedNonce === null) return { pass: false, detail: "ONCHAIN_NONCE_UNAVAILABLE: could not read the contract's last_nonce, so replay safety is unknown" };
   if (approvedNonces.has(nonce)) return { pass: false, detail: `NONCE_ALREADY_USED: ${nonce} was already approved by this guard` };
   const ageMs = now.getTime() - Math.floor(nonce / 1000);
   if (ageMs > ORDER_MAX_AGE_MS) return { pass: false, detail: `STALE_ORDER: nonce timestamp is ${Math.round(ageMs / 1000)} s old (max ${ORDER_MAX_AGE_MS / 1000} s)` };
@@ -316,8 +320,16 @@ export function runGuardianAgent(input: {
   solver: SolverResult;
   trustedMeasurements?: string[];
   trustedEnclaveKeys: string[];
-  /** Last nonce accepted by the deployed contract (0 offline). */
-  lastAcceptedNonce?: number;
+  /**
+   * Last nonce accepted by the deployed contract. 0 for offline runs; `null` means a live
+   * read failed, which fails invariant 8 (fail closed).
+   */
+  lastAcceptedNonce?: number | null;
+  /**
+   * Agent 1's economic verdict. When `withhold` is true and the risk checks pass, the decision
+   * is recorded as approved-but-withheld and no sign request is prepared.
+   */
+  economics?: { recommendation: "TRADE" | "NO_TRADE"; withhold: boolean };
   /** Treasury and pair from the request; when given, the solver's plan must match them. */
   expected?: TrustedRunInputs;
   now?: Date;
@@ -346,7 +358,7 @@ export function runGuardianAgent(input: {
   const intentCheck = checkIntent(solver);
   const envCheck = checkEnvelope(solver, guardian);
   const binding = checkBinding(solver, input.expected);
-  const replay = checkReplay(solver.order.nonce, input.lastAcceptedNonce ?? 0, now);
+  const replay = checkReplay(solver.order.nonce, input.lastAcceptedNonce === undefined ? 0 : input.lastAcceptedNonce, now);
 
   const checks: PolicyCheck[] = [
     {
@@ -436,6 +448,8 @@ export function runGuardianAgent(input: {
     attestationReportHash: solver.attestation.reportHash,
     hedgeOrderPayloadHex: solver.hedgeOrderPayloadHex,
     orderNonce: solver.order.nonce,
+    economicRecommendation: input.economics?.recommendation ?? "TRADE",
+    signRequestWithheld: decision === "APPROVED" && input.economics?.withhold === true,
     policy: RISK_POLICY,
     checks: checks.map(({ id, pass, observed, threshold }) => ({ id, pass, observed, threshold })),
     decidedAt,
@@ -444,8 +458,8 @@ export function runGuardianAgent(input: {
   const guardianSignature = bytesToHex(nacl.sign.detached(hexToBytes(decisionHash), guardian.signKeyPair.secretKey));
 
   let mpcSignRequest: MpcSignRequest | null = null;
-  if (decision === "APPROVED") {
-    rememberApprovedNonce(solver.order.nonce);
+  if (decision === "APPROVED") rememberApprovedNonce(solver.order.nonce);
+  if (decision === "APPROVED" && input.economics?.withhold !== true) {
     mpcSignRequest = {
       contractId: RISK_GUARD_CONTRACT_ID,
       methodName: "record_rebalance",

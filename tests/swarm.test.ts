@@ -510,7 +510,10 @@ describe("Swarm orchestrator (offline mode)", () => {
     const events = run.audit.events.map((e) => e.event);
     expect(events).toContain("SOLVER_SLIPPAGE_FEEDBACK");
     expect(events).toContain("SCANNER_RESLICE_ADJUSTMENT");
-    expect(events.indexOf("SCANNER_RESLICE_ADJUSTMENT")).toBeLessThan(events.indexOf("INTENT_APPROVED"));
+    // negotiation happens before Agent 3 decides (the decision event name depends on NO_TRADE)
+    const decisionIdx = events.findIndex((e) => e === "INTENT_APPROVED" || e === "RISK_APPROVED_SETTLEMENT_WITHHELD");
+    expect(decisionIdx).toBeGreaterThan(-1);
+    expect(events.indexOf("SCANNER_RESLICE_ADJUSTMENT")).toBeLessThan(decisionIdx);
     expect(run.guardian.decision).toBe("APPROVED");
   });
 

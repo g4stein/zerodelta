@@ -53,6 +53,8 @@ export interface OrderAction {
  * then strip trailing zeros (Decimal.normalize) without scientific notation.
  */
 export function floatToWire(x: number): string {
+  // toFixed switches to exponent notation at 1e21; the SDK never emits that. Refuse instead.
+  if (!Number.isFinite(x) || Math.abs(x) >= 1e21) throw new Error(`float_to_wire out of range: ${x}`);
   let rounded = x.toFixed(8);
   if (Math.abs(Number(rounded) - x) >= 1e-12) throw new Error(`float_to_wire causes rounding: ${x}`);
   if (/^-0(\.0+)?$/.test(rounded)) rounded = "0";
@@ -133,13 +135,24 @@ export interface HedgeBindingCheck {
 
 /**
  * Checks that a Hyperliquid order action is exactly the hedge the Risk Guard approved:
- * one order, the right market, a SELL (short), not reduce-only, Ioc, and
- * size × limit price within `toleranceBps` of the approved perp-short notional.
+ * one order, the right market, a SELL (short), not reduce-only, Ioc, a limit price within
+ * `priceBandBps` of a trusted reference price (mark/oracle), and size × reference price
+ * within `toleranceBps` of the approved perp-short notional.
+ *
+ * The reference price matters: an IOC sell fills at the bid, so checking size × limit price
+ * alone would let 100× the size through at 1/100 of the price.
  */
-export function checkActionMatchesApprovedHedge(action: OrderAction, approved: Pick<OrderParams, "asset_symbol" | "perp_short_usd_cents" | "perp_long_usd_cents">, toleranceBps = 50): HedgeBindingCheck {
+export function checkActionMatchesApprovedHedge(
+  action: OrderAction,
+  approved: Pick<OrderParams, "asset_symbol" | "perp_short_usd_cents" | "perp_long_usd_cents">,
+  referencePx: number,
+  toleranceBps = 50,
+  priceBandBps = 100,
+): HedgeBindingCheck {
   const v: string[] = [];
   const perp = HYPERLIQUID_PERPS[approved.asset_symbol];
   const approvedNotionalUsd = approved.perp_short_usd_cents / 100;
+  if (!(referencePx > 0) || !Number.isFinite(referencePx)) v.push("NO_TRUSTED_REFERENCE_PRICE");
   if (!perp) v.push(`UNSUPPORTED_ASSET: ${approved.asset_symbol}`);
   if (approved.perp_long_usd_cents !== 0) v.push("APPROVED_ORDER_HAS_PERP_LONG");
   if (action.type !== "order" || action.grouping !== "na") v.push("NOT_A_PLAIN_ORDER_ACTION");
@@ -153,7 +166,11 @@ export function checkActionMatchesApprovedHedge(action: OrderAction, approved: P
     if (o.t?.limit?.tif !== "Ioc") v.push("TIF_MUST_BE_IOC");
     const decimals = o.s.includes(".") ? o.s.split(".")[1].length : 0;
     if (perp && decimals > perp.szDecimals) v.push(`SIZE_PRECISION: ${decimals} > ${perp.szDecimals} decimals`);
-    notionalUsd = Number(o.s) * Number(o.p);
+    const px = Number(o.p);
+    if (referencePx > 0 && Math.abs(px - referencePx) / referencePx > priceBandBps / 10_000) {
+      v.push(`PRICE_OUTSIDE_BAND: limit ${o.p} vs reference ${referencePx} (> ${priceBandBps} bps)`);
+    }
+    notionalUsd = Number(o.s) * (referencePx > 0 ? referencePx : px);
   }
   const deviationBps = approvedNotionalUsd > 0 ? (Math.abs(notionalUsd - approvedNotionalUsd) / approvedNotionalUsd) * 10_000 : Number.POSITIVE_INFINITY;
   if (!(deviationBps <= toleranceBps)) v.push(`NOTIONAL_MISMATCH: ${notionalUsd.toFixed(2)} vs approved ${approvedNotionalUsd.toFixed(2)} (${deviationBps.toFixed(1)} bps)`);

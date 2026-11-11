@@ -53,7 +53,7 @@ describe("Economics: Agent 1 must not present a losing trade as a recommendation
   it("live mode refuses to recommend on snapshot data", () => {
     const r = runScannerAgent({ pair: "AUTO", treasuryUsd: 50_000, tokens, funding, costs, requireLiveData: true });
     expect(r.recommendation).toBe("NO_TRADE");
-    expect(r.recommendationReason).toMatch(/live funding or 1Click cost data is unavailable/);
+    expect(r.recommendationReason).toMatch(/live funding or the live 1Click cost probe for \w+ is unavailable/);
   });
 
   it("the orchestrator withholds settlement and the sign request on NO_TRADE", async () => {
@@ -82,6 +82,61 @@ describe("Economics: Agent 1 must not present a losing trade as a recommendation
   it("only boolean true enables the override over HTTP", () => {
     expect(parseSwarmRequest({ simulateUnprofitable: "yes" }).simulateUnprofitable).toBeUndefined();
     expect(parseSwarmRequest({ simulateUnprofitable: true }).simulateUnprofitable).toBe(true);
+  });
+});
+
+describe("Post-merge audit regressions", () => {
+  it("an unreadable on-chain last_nonce fails the replay invariant (fail closed)", async () => {
+    const s = await solve(plan());
+    const d = guard(s, { lastAcceptedNonce: null });
+    expect(d.decision).toBe("REJECTED");
+    expect(d.checks.find((c) => c.id === "REPLAY_AND_MPC_GATE")!.detail).toMatch(/ONCHAIN_NONCE_UNAVAILABLE/);
+    expect(d.mpcSignRequest).toBeNull();
+  });
+
+  it("a live run with every network call failing is never approved", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("ECONNREFUSED");
+    }));
+    const run = await runSwarm({ mode: "rebalance", pair: "ETH", treasuryUsd: 50_000, sliceCount: 4, simulateUnprofitable: true }, { live: true });
+    expect(run.guardian.decision).toBe("REJECTED");
+    expect(run.guardian.violations).toContain("REPLAY_AND_MPC_GATE");
+    expect(run.guardian.mpcSignRequest).toBeNull();
+    expect(run.economics.recommendation).toBe("NO_TRADE"); // snapshot data is never a recommendation
+  });
+
+  it("settlementWithheld is only reported for runs the guard approved", async () => {
+    // manual NEAR on snapshot data is NO_TRADE; force a guard rejection with a stale clock
+    const run = await runSwarm({ mode: "rebalance", pair: "NEAR", treasuryUsd: 50_000, sliceCount: 4 }, { live: false });
+    expect(run.economics.recommendation).toBe("NO_TRADE");
+    expect(run.economics.settlementWithheld).toBe(run.guardian.decision === "APPROVED");
+  });
+
+  it("a withheld approval is recorded in the signed decision and the audit trail", async () => {
+    const run = await runSwarm({ mode: "rebalance", pair: "NEAR", treasuryUsd: 50_000, sliceCount: 4 }, { live: false });
+    expect(run.guardian.decision).toBe("APPROVED");
+    expect(run.guardian.decisionRecord).toMatchObject({ economicRecommendation: "NO_TRADE", signRequestWithheld: true });
+    expect(run.audit.events.map((e) => e.event)).toContain("RISK_APPROVED_SETTLEMENT_WITHHELD");
+    expect(run.audit.events.map((e) => e.event)).not.toContain("INTENT_APPROVED");
+  });
+
+  it("an unknown pair is rejected, not thrown", async () => {
+    const s = await solve(plan());
+    const bad = { ...s, executablePlan: { ...s.executablePlan, pair: "DOGE" as PairId } };
+    const d = guard(bad);
+    expect(d.decision).toBe("REJECTED");
+    expect(d.violations).toEqual(expect.arrayContaining(["ENVELOPE_INTEGRITY", "ORDER_PAYLOAD_BINDING"]));
+  });
+
+  it("TRADE requires a live cost probe for the chosen market, not just any market", () => {
+    const liveFunding = { ...funding, live: true };
+    const mixed = { ...costs, BTC: { ...costs.BTC, source: "1click-live" as const } };
+    const r = runScannerAgent({ pair: "ETH", treasuryUsd: 50_000, tokens, funding: liveFunding, costs: mixed, requireLiveData: true });
+    expect(r.recommendation).toBe("NO_TRADE");
+    expect(r.recommendationReason).toMatch(/ETH is unavailable/);
+    const liveEth = { ...costs, ETH: { ...costs.ETH, source: "1click-live" as const } };
+    const ok = runScannerAgent({ pair: "ETH", treasuryUsd: 50_000, tokens, funding: liveFunding, costs: liveEth, requireLiveData: true });
+    expect(ok.recommendation).toBe(ok.selected.eligible ? "TRADE" : "NO_TRADE");
   });
 });
 

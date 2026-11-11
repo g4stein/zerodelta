@@ -100,12 +100,12 @@ On the page: **do** click the green button **→ see** the market ranking, the A
 
 ## Reproducible tests
 
-Results from the run recorded in [`verify-report.json`](verify-report.json) (see its `source` field for the exact commit):
+Results of the latest full run. [`verify-report.json`](verify-report.json) is that run's machine-readable output: its `source.commit` is the commit the run started from, with `dirty: true` and a hash of the uncommitted diff, because a report can't name the commit that contains it. For a report bound to one exact commit, use the CI artifact `verify-report-offline-<sha>`.
 
 | Command | Result | Network |
 |---|---|---|
 | `npm run typecheck` | clean | none |
-| `npm test` | **91 tests**, 3 files: [`swarm.test.ts`](tests/swarm.test.ts), [`adversarial.test.ts`](tests/adversarial.test.ts), [`hyperliquid.test.ts`](tests/hyperliquid.test.ts) | none (fetch mocked where used) |
+| `npm test` | **100 tests**, 3 files: [`swarm.test.ts`](tests/swarm.test.ts), [`adversarial.test.ts`](tests/adversarial.test.ts), [`hyperliquid.test.ts`](tests/hyperliquid.test.ts) | none (fetch mocked where used) |
 | `cd contracts/risk-guard && cargo test` | **33 tests**: 18 unit tests in `src/lib.rs` + 15 in [`tests/adversarial.rs`](contracts/risk-guard/tests/adversarial.rs) | none (Rust 1.81) |
 | `npm run verify:offline` | **22 pass, 25 skipped** (live-only) | none |
 | `npm run verify` | **57 checks**, read-only | public NEAR RPC, 1Click, Hyperliquid |
@@ -126,7 +126,7 @@ What each layer covers and how to read the report: [docs/VERIFICATION.md](docs/V
 | Unauthorized caller, incl. the guard account | n/a | `UNAUTHORIZED_SOLVER` | Rust |
 | Zero / inflated collateral, invalid symbol, u64 extremes, rounding edges | `INVALID_ORDER` | `INVALID_ORDER`, ceil rounding, u128 saturation | Rust |
 | Forged NEP-413 signature, wrong recipient, wrong signer, tampered/dropped slice, forged or stale attestation | `NEP413_SIGNATURE`, `ENVELOPE_INTEGRITY`, `TEE_ATTESTATION` | n/a | Vitest, verify |
-| RPC down, malformed or rate-limited | fails closed (never "approved") | n/a | Vitest (mocked fetch) |
+| RPC down, malformed or rate-limited | fails closed: contract reads return "unavailable", and if the contract's `last_nonce` can't be read the run is REJECTED (`ONCHAIN_NONCE_UNAVAILABLE`) | n/a | Vitest (mocked fetch) |
 
 ## Agent architecture
 

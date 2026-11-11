@@ -83,7 +83,7 @@ describe("Binding an executable Hyperliquid order to the approved hedge (offline
     expect(o.a).toBe(74); // NEAR perp index
     expect(o.b).toBe(false); // sell
     expect(o.t.limit.tif).toBe("Ioc");
-    const check = checkActionMatchesApprovedHedge(action, approved);
+    const check = checkActionMatchesApprovedHedge(action, approved, px);
     expect(check.ok).toBe(true);
     expect(check.deviationBps).toBeLessThan(5);
   });
@@ -93,17 +93,46 @@ describe("Binding an executable Hyperliquid order to the approved hedge (offline
     const mutate = (fn: (a: OrderAction) => void) => {
       const copy = structuredClone(base);
       fn(copy);
-      return checkActionMatchesApprovedHedge(copy, approved).violations.join(" ");
+      return checkActionMatchesApprovedHedge(copy, approved, px).violations.join(" ");
     };
     expect(mutate((a) => (a.orders[0].b = true))).toMatch(/WRONG_SIDE/);
     expect(mutate((a) => (a.orders[0].a = 1))).toMatch(/WRONG_MARKET/);
     expect(mutate((a) => (a.orders[0].s = floatToWire(Number(a.orders[0].s) * 10)))).toMatch(/NOTIONAL_MISMATCH/);
     expect(mutate((a) => (a.orders[0].r = true))).toMatch(/REDUCE_ONLY/);
     expect(mutate((a) => a.orders.push(a.orders[0]))).toMatch(/EXPECTED_ONE_ORDER/);
+    // 100x the size at 1/100 of the price keeps size x limit price constant: the reference band catches it
+    expect(
+      mutate((a) => {
+        a.orders[0].s = String(Number(a.orders[0].s) * 100);
+        a.orders[0].p = String(px / 100);
+      }),
+    ).toMatch(/PRICE_OUTSIDE_BAND.*NOTIONAL_MISMATCH|NOTIONAL_MISMATCH|PRICE_OUTSIDE_BAND/);
     // and the signed digest changes, so a signature over the approved action can't be reused
     const tampered = structuredClone(base);
     tampered.orders[0].s = floatToWire(Number(tampered.orders[0].s) + 1);
     expect(bytesToHex(actionHash(tampered, 1))).not.toBe(bytesToHex(actionHash(base, 1)));
+  });
+
+  it("size/price inversion is rejected on both the price band and the notional", () => {
+    const base = buildHedgeAction(approved, px);
+    const inverted = structuredClone(base);
+    inverted.orders[0].s = String(Number(base.orders[0].s) * 100);
+    inverted.orders[0].p = String(px / 100);
+    const r = checkActionMatchesApprovedHedge(inverted, approved, px);
+    expect(r.ok).toBe(false);
+    expect(r.violations.join(" ")).toMatch(/PRICE_OUTSIDE_BAND/);
+    expect(r.violations.join(" ")).toMatch(/NOTIONAL_MISMATCH/);
+  });
+
+  it("refuses to judge without a trusted reference price", () => {
+    const r = checkActionMatchesApprovedHedge(buildHedgeAction(approved, px), approved, 0);
+    expect(r.ok).toBe(false);
+    expect(r.violations).toContain("NO_TRUSTED_REFERENCE_PRICE");
+  });
+
+  it("float_to_wire refuses values that would print in exponent notation", () => {
+    expect(() => floatToWire(1e21)).toThrow(/out of range/);
+    expect(() => floatToWire(Number.NaN)).toThrow(/out of range/);
   });
 
   it("the deployed contract's signed digest is NOT a Hyperliquid action digest", () => {

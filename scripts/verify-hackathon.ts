@@ -77,6 +77,8 @@ interface Result {
 }
 
 const offline = process.argv.includes("--offline") || process.env.ZERODELTA_OFFLINE === "1";
+/** Untracked by default so local runs don't dirty the repo; `npm run verify:report` refreshes the committed snapshot. */
+const REPORT_PATH = process.env.VERIFY_REPORT_PATH ?? "verify-report.local.json";
 const results: Result[] = [];
 const color = { PASS: "\x1b[32m", WARN: "\x1b[33m", SKIP: "\x1b[90m", FAIL: "\x1b[31m", reset: "\x1b[0m", bold: "\x1b[1m", cyan: "\x1b[36m" };
 const icon: Record<Level, string> = { PASS: "✔", WARN: "▲", SKIP: "○", FAIL: "✘" };
@@ -263,9 +265,13 @@ async function main() {
   const hedge = buildHedgeAction(TESTNET_PROOF.approvedOrder.order, 3.6);
   const tampered = structuredClone(hedge);
   tampered.orders[0].b = true;
+  // 100x the size at 1/100 of the price: same size x limit price, caught by the reference-price band
+  const inverted = structuredClone(hedge);
+  inverted.orders[0].s = String(Number(hedge.orders[0].s) * 100);
+  inverted.orders[0].p = "0.036";
   check(
-    "Offline: executable hedge bound to approved order; tampering detected; not the contract digest",
-    checkActionMatchesApprovedHedge(hedge, TESTNET_PROOF.approvedOrder.order).ok && !checkActionMatchesApprovedHedge(tampered, TESTNET_PROOF.approvedOrder.order).ok && bytesToHex(actionHash(hedge, 0)) !== TESTNET_PROOF.mpcSignature.payloadHex,
+    "Offline: executable hedge bound to approved order; side flip and size/price inversion detected; not the contract digest",
+    checkActionMatchesApprovedHedge(hedge, TESTNET_PROOF.approvedOrder.order, 3.6).ok && !checkActionMatchesApprovedHedge(tampered, TESTNET_PROOF.approvedOrder.order, 3.6).ok && !checkActionMatchesApprovedHedge(inverted, TESTNET_PROOF.approvedOrder.order, 3.6).ok && bytesToHex(actionHash(hedge, 0)) !== TESTNET_PROOF.mpcSignature.payloadHex,
     "readiness module only: the deployed contract signs a ZeroDelta commitment, not a Hyperliquid action",
   );
 
@@ -275,7 +281,7 @@ async function main() {
     // simulateUnprofitable keeps this a pipeline check even if live carry is negative today;
     // the economic recommendation is reported (and checked for consistency) separately.
     const r = await runSwarm({ mode: "rebalance", pair: "AUTO", treasuryUsd: 50_000, sliceCount: "auto", simulateUnprofitable: true }, { live: true });
-    check("  Agent 1 recommendation is consistent with the live matrix", (r.economics.recommendation === "TRADE") === (r.scanner.selected.eligible && r.sources.funding.live), `${r.economics.reason.slice(0, 120)}${r.economics.overridden ? " (pipeline check used the demo override)" : ""}`);
+    check("  Agent 1 recommendation is consistent with the live matrix", (r.economics.recommendation === "TRADE") === (r.scanner.selected.eligible && r.sources.funding.live && r.costProbes[r.resolved.pair].source === "1click-live"), `${r.economics.reason.slice(0, 120)}${r.economics.overridden ? " (pipeline check used the demo override)" : ""}`);
     const g = r.guardian;
     const m = r.scanner.opportunityMatrix;
     const liveCosts = Object.values(r.costProbes).filter((c) => c.source === "1click-live").length;
@@ -386,6 +392,7 @@ async function main() {
     bySection[r.section][r.level]++;
   }
   const dirty = sh("git status --porcelain --untracked-files=no");
+  const diffHash = dirty ? sh("git diff HEAD | sha256sum | cut -d' ' -f1") : null;
   const report = {
     project: "ZeroDelta",
     schema: 2,
@@ -397,7 +404,9 @@ async function main() {
       branch: sh("git rev-parse --abbrev-ref HEAD"),
       // true = tracked files differed from `commit` when this ran, so the report covers uncommitted changes
       dirty: dirty === null ? null : dirty.length > 0,
-      note: "A committed report describes the commit it ran on, which is the parent of the commit that adds it. CI artifacts are tied to their own commit.",
+      // sha256 of `git diff HEAD` when dirty: identifies the exact uncommitted changes that ran
+      uncommittedDiffSha256: diffHash,
+      note: "`commit` is the commit the run started from. A report committed to the repo therefore names its parent commit (dirty = true). For a report bound to one exact commit, use the CI artifact verify-report-offline-<sha>.",
     },
     environment: { node: process.version, platform: `${process.platform}-${process.arch}`, ci: Boolean(process.env.CI), rust: sh("rustc --version") },
     totals: { checks: results.length, PASS: count("PASS"), WARN: count("WARN"), SKIP: count("SKIP"), FAIL: failed, durationSec: Number(secs) },
@@ -410,8 +419,8 @@ async function main() {
     },
     results,
   };
-  writeFileSync(process.env.VERIFY_REPORT_PATH ?? "verify-report.json", JSON.stringify(report, null, 2) + "\n");
-  console.log(`Machine-readable report written to ${process.env.VERIFY_REPORT_PATH ?? "verify-report.json"}`);
+  writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2) + "\n");
+  console.log(`Machine-readable report written to ${REPORT_PATH}`);
   if (failed > 0) {
     console.log(`${color.FAIL}${color.bold}VERIFICATION FAILED${color.reset}`);
     process.exit(1);

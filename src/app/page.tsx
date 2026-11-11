@@ -742,7 +742,8 @@ function DecisionBanner({ run, running }: { run: SwarmRun | null; running: Swarm
   }
   const g = run.guardian;
   const approved = g.decision === "APPROVED";
-  const noTrade = run.economics.settlementWithheld;
+  // Only an approved run can be "withheld"; a rejected run is shown as rejected.
+  const noTrade = run.economics.settlementWithheld && approved;
   return (
     <Card className={cx("p-5", noTrade ? "border-amber-500/40" : approved ? "border-emerald-500/40" : "border-rose-500/50")} aria-live="polite">
       <div className="mb-3 flex flex-wrap gap-1.5">
@@ -1224,7 +1225,11 @@ function SettlementView({ run }: { run: SwarmRun }) {
     <Card className="p-5">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
-          <Layers className="h-4 w-4 text-cyan-400" /> {approved ? "Target cross-chain allocation (dry-run settled)" : "Treasury allocation (unchanged)"}
+          <Layers className="h-4 w-4 text-cyan-400" /> {st.status === "DRY_RUN_SETTLED"
+            ? "Target cross-chain allocation (dry-run settled)"
+            : st.status === "SKIPPED_OFFLINE"
+              ? "Target cross-chain allocation (offline: not simulated)"
+              : "Treasury allocation (unchanged)"}
         </h3>
         <div className="flex flex-wrap gap-1.5">
           <EvidenceTag kind="simulated" />
@@ -1389,7 +1394,7 @@ function ProofInspector({
           ) : (
             <div className="flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-xs text-rose-200">
               <Lock className="h-4 w-4" />
-              {run.economics.settlementWithheld
+              {run.economics.settlementWithheld && run.guardian.decision === "APPROVED"
                 ? "No record_rebalance call was prepared: Agent 3 approved the risk, but Agent 1 recommends NO_TRADE, so no signature is requested."
                 : "No record_rebalance call exists for this run: Agent 3 refused it, and the contract would refuse it too (see the On-chain proof tab)."}
             </div>

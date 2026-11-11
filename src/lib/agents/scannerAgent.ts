@@ -282,10 +282,11 @@ export function runScannerAgent(input: {
       ? `${best.asset} ranks #1 of ${opportunityMatrix.length}: ${best.netCarryAprPct}% net carry after ${best.estimatedRoundTripCostBps} bps round-trip costs.`
       : `No candidate has positive net carry right now; ${best.asset} is the least negative. A real treasury would stay in USDC; the plan is produced so the pipeline can be inspected.`;
   const plan = buildDeltaNeutralPlan(selected.asset, input.treasuryUsd, selected);
-  const liveDataOk = !input.requireLiveData || (input.funding.live && Object.values(input.costs).some((c) => c.source === "1click-live"));
+  // The chosen market itself must have live funding and a live 1Click cost probe.
+  const liveDataOk = !input.requireLiveData || (input.funding.live && input.costs[selected.asset]?.source === "1click-live");
   const recommendation: ScannerResult["recommendation"] = selected.eligible && liveDataOk ? "TRADE" : "NO_TRADE";
   const recommendationReason = !liveDataOk
-    ? "NO_TRADE: live funding or 1Click cost data is unavailable; ZeroDelta does not recommend trades on snapshot data."
+    ? `NO_TRADE: live funding or the live 1Click cost probe for ${selected.asset} is unavailable; ZeroDelta does not recommend trades on snapshot or modelled data.`
     : selected.eligible
       ? `TRADE: ${selected.asset} earns an estimated ${selected.netCarryAprPct}% net carry (${selected.treasuryNetAprPct}% on the whole treasury). Estimate, not a guarantee: funding changes hourly.`
       : `NO_TRADE: ${selected.asset} ${selected.verdict}. ${manual ? "The manual choice" : "No candidate"} has positive estimated net carry, so a real treasury would stay in USDC.`;
