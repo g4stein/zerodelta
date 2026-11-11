@@ -41,7 +41,7 @@ cd contracts/risk-guard-v31 && cargo test  # v3.1, Rust 1.81
 
 | What | File |
 |---|---|
-| v3 contract (builds the order, computes the digest, signs) | [`contracts/risk-guard-v3/src/lib.rs`](../contracts/risk-guard-v3/src/lib.rs), [`hl.rs`](../contracts/risk-guard-v3/src/hl.rs), [README](../contracts/risk-guard-v3/README.md) |
+| Superseded v3 contract (historical encoding/signing path) | [`contracts/risk-guard-v3/src/lib.rs`](../contracts/risk-guard-v3/src/lib.rs), [`hl.rs`](../contracts/risk-guard-v3/src/hl.rs), [README](../contracts/risk-guard-v3/README.md) |
 | v3 tests | [`sdk_vectors.rs`](../contracts/risk-guard-v3/tests/sdk_vectors.rs), [`ts_parity.rs`](../contracts/risk-guard-v3/tests/ts_parity.rs), [`adversarial.rs`](../contracts/risk-guard-v3/tests/adversarial.rs) |
 | v3 TypeScript mirror | [`src/lib/hyperliquid/v3Hedge.ts`](../src/lib/hyperliquid/v3Hedge.ts), [`fixedPoint.ts`](../src/lib/hyperliquid/fixedPoint.ts), [`exchangeSigning.ts`](../src/lib/hyperliquid/exchangeSigning.ts) |
 | v3.1 contract (caps, expiry, builds the order, signs) | [`contracts/risk-guard-v31/src/lib.rs`](../contracts/risk-guard-v31/src/lib.rs), [`hl.rs`](../contracts/risk-guard-v31/src/hl.rs), [`MUTATION_RESULTS.md`](../contracts/risk-guard-v31/MUTATION_RESULTS.md) |
@@ -49,6 +49,9 @@ cd contracts/risk-guard-v31 && cargo test  # v3.1, Rust 1.81
 | v3 (superseded) deploy + proof txs, exchange check | [`scripts/testnet-setup-v3.ts`](../scripts/testnet-setup-v3.ts), [`scripts/hl-acceptance.ts`](../scripts/hl-acceptance.ts) |
 | v2 contract and tests | [`contracts/risk-guard/src/lib.rs`](../contracts/risk-guard/src/lib.rs), [`tests/adversarial.rs`](../contracts/risk-guard/tests/adversarial.rs) |
 | Agents | [`scannerAgent.ts`](../src/lib/agents/scannerAgent.ts), [`solverAgent.ts`](../src/lib/agents/solverAgent.ts), [`guardianAgent.ts`](../src/lib/agents/guardianAgent.ts), [`orchestrator.ts`](../src/lib/swarm/orchestrator.ts) |
+| Fresh read-only proposal checker | [`src/app/api/hedge-preview/route.ts`](../src/app/api/hedge-preview/route.ts), [`preview.ts`](../src/lib/hyperliquid/preview.ts) |
+| Second review and regressions | [SECOND_REVIEW.md](SECOND_REVIEW.md), [`reviewRegressions.test.ts`](../tests/reviewRegressions.test.ts) |
+| Source-to-WASM byte comparison | [`scripts/verify-wasm.sh`](../scripts/verify-wasm.sh) |
 | Verification harness | [`scripts/verify-hackathon.ts`](../scripts/verify-hackathon.ts) |
 | Proof data | [`testnet-proof.json`](../testnet-proof.json) (v3.1, v3 then v2 under `previousDeployment`), [`hl-acceptance.json`](../hl-acceptance.json) |
 | Threat model | [SECURITY_MODEL.md](SECURITY_MODEL.md) |
