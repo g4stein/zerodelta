@@ -77,3 +77,37 @@ describe("v3 proof (offline re-check)", () => {
     expect(recoverAddress(v3.approvedHedge.digestHex, flipped)).not.toBe(v3.hedgeKey.evmAddress.toLowerCase());
   });
 });
+
+describe("Hyperliquid acceptance (CP4) classification and recorded result", () => {
+  it("parses the recovered address strictly and never passes on other responses", async () => {
+    const { classify, parseRecoveredAddress } = await import("../scripts/hl-acceptance");
+    const exp = "0xef639b571185dc6ee0e4680de4e8dd81e7e02c66";
+    const msg = (a: string) => JSON.stringify({ status: "err", response: `User or API Wallet ${a} does not exist.` });
+    expect(classify(parseRecoveredAddress(msg("0xEF639B571185DC6EE0E4680DE4E8DD81E7E02C66")), exp)).toBe("PASS");
+    expect(classify(parseRecoveredAddress(msg("0xd9cf502b9ce06090c94da764e15446fbcd0e3608")), exp)).toBe("FAIL");
+    for (const other of [
+      "not json",
+      JSON.stringify({ status: "ok", response: { type: "order" } }),
+      JSON.stringify({ status: "err", response: "Order has invalid price." }),
+      JSON.stringify({ status: "err", response: `Must deposit before performing actions. User: ${exp}` }),
+      "",
+    ]) {
+      expect(classify(parseRecoveredAddress(other), exp)).toBe("OTHER");
+    }
+  });
+
+  it("the recorded run passed: HL recovered the hedge address, and different ones for both controls", () => {
+    const r = JSON.parse(readFileSync("hl-acceptance.json", "utf8"));
+    expect(r.verdict).toBe("PASS");
+    expect(r.expectedAddress).toBe(v3.hedgeKey.evmAddress.toLowerCase());
+    expect(r.digestHex).toBe(v3.approvedHedge.digestHex);
+    expect(r.results.map((x: { classification: string }) => x.classification)).toEqual(["PASS", "FAIL", "FAIL"]);
+    expect(r.results[0].recoveredAddress).toBe(r.expectedAddress);
+    expect(new Set(r.results.map((x: { recoveredAddress: string }) => x.recoveredAddress)).size).toBe(3);
+    for (const x of r.results) {
+      expect(x.request).not.toHaveProperty("vaultAddress");
+      expect(x.hyperliquidAgreesWithLocalRecovery).toBe(true);
+      expect(x.recoveredAddress).toBe(recoverAddress(v3.approvedHedge.digestHex, x.request.signature));
+    }
+  });
+});

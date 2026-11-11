@@ -23,6 +23,7 @@
     "test:contract:v3": "cd contracts/risk-guard-v3 && cargo test",
     "contract:build:v3": "cd contracts/risk-guard-v3 && cargo +1.81.0 build --locked --release --target wasm32-unknown-unknown && mkdir -p res && cp target/wasm32-unknown-unknown/release/zerodelta_risk_guard_v3.wasm res/",
     "hl:vectors": "npx tsx scripts/hl-vectors.ts",
+    "hl:acceptance": "npx tsx scripts/hl-acceptance.ts",
     "verify:report": "VERIFY_REPORT_PATH=verify-report.json npx tsx scripts/verify-hackathon.ts"
   },
   "dependencies": {
