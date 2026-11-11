@@ -87,3 +87,9 @@ The source hardening regressions live in `tests/intentBoundary.test.ts`; they co
 `tests/reviewRegressions.test.ts` exercises directional orders hidden behind forged deltas, quote-validity laundering, quote minima changed with a fresh signature and attestation, aggregate impact mismatches, receipt identity and expiry, invalid amounts, fabricated plan hashes, executable-slice tampering, audit-history edits/truncation/seal forgery, and corrupted recorded exchange evidence.
 
 The live verifier and standalone acceptance command share `verifyRecordedAcceptance`. They rebuild the exchange request digest, parse raw responses and recompute all three signature recoveries; the saved flags are compared with the result rather than trusted. `verifyAuditChain(events, seal, expectedPublicKey, expectedDecisionHash)` checks the signed complete history relative to the identity supplied by its caller. Historical immutable proof artifacts are not rewritten.
+
+## 8. Reading check counts and source metadata
+
+Offline mode currently records 37 passing checks and 48 live-only skips (85 result entries). Online mode executes those live sections, some of which expand into several checks, for 95 entries. The skip count is not a count of sections and is not intended to add to the online check count.
+
+A refreshed committed report is generated from a clean source commit, then saved in a subsequent report-only commit. Read its `source.commit` and `source.dirty` fields to identify what actually ran. CI artifacts identify the exact CI head instead. The report's Rust version describes the host toolchain visible to the TypeScript harness; deployed contract builds and tests explicitly pin Rust 1.81.0 regardless of the host default.

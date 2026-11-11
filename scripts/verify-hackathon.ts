@@ -625,7 +625,7 @@ async function main() {
       dirty: dirty === null ? null : dirty.length > 0,
       // sha256 of `git diff HEAD` when dirty: identifies the exact uncommitted changes that ran
       uncommittedDiffSha256: diffHash,
-      note: "`commit` is the commit the run started from. A report committed to the repo therefore names its parent commit (dirty = true). For a report bound to one exact commit, use the CI artifact verify-report-offline-<sha>.",
+      note: "`commit` is the commit the run started from. A report saved in a subsequent commit names the previously checked source; dirty describes tracked changes at the start of that run. For a report bound to one exact commit, use the CI artifact verify-report-offline-<sha>.",
     },
     environment: { node: process.version, platform: `${process.platform}-${process.arch}`, ci: Boolean(process.env.CI), rust: sh("rustc --version") },
     totals: { checks: results.length, PASS: count("PASS"), WARN: count("WARN"), SKIP: count("SKIP"), FAIL: failed, durationSec: Number(secs) },

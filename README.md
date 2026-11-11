@@ -138,13 +138,13 @@ npm ci                 # Node.js >= 20.9, no API keys
 npm run dev            # http://localhost:3000
 ```
 
-On the page: **do** start with **Try the current contract** above the v3.1 proof panel **→ see** the five-step chain, with the digest and the signature recovered again in your browser and the v3.1 contract's lock state read live. **Do** click the green button **→ see** the market ranking, the Agent 1/2 negotiation, 8 passing checks and the contract's verdict. **Do** click the amber button **→ see** the claim-vs-payload panel and `PAYLOAD_COMMITMENT_MISMATCH`. **Do** open the *On-chain proof (testnet)* tab **→ see** the five v2 transactions re-verified live.
+On the page: **do** start with **Try the current contract** **→ see** the contract's fresh verdict, constructed order and digest. Nothing signs or broadcasts. **Do** read the v3.1 historical proof panel below it **→ see** the five-step signing chain, with the recorded digest and signature recovery recomputed in your browser and the contract's lock state read live. **Do** click the green swarm button **→ see** market ranking, Agent 1/2 negotiation, the guard checks and the v2 contract's verdict. **Do** click the amber button **→ see** the claim-vs-payload panel and `PAYLOAD_COMMITMENT_MISMATCH`. The swarm is a separate v2 dry-run demonstration, not a new v3.1 signature.
 
 Re-check the recorded exchange evidence offline (no network requests or writes): `npm run hl:acceptance` **→ see** `PASS` for the real signature and different addresses for the two corrupted copies.
 
 ## Reproducible tests
 
-Results of the latest full run. [`verify-report.json`](verify-report.json) is that run's machine-readable output: its `source.commit` is the commit the run started from, with `dirty: true` and a hash of the uncommitted diff, because a report can't name the commit that contains it. For a report bound to one exact commit, use the CI artifact `verify-report-offline-<sha>`.
+[`verify-report.json`](verify-report.json) is a read-only verification snapshot. Its `source.commit` identifies the source checked, and `source.dirty` says whether tracked files differed at the start of that run. The report cannot name the commit that subsequently saves it. For a report tied to the exact reviewed head, use the CI artifact `verify-report-offline-<sha>`.
 
 | Command | Result | Network |
 |---|---|---|
@@ -198,7 +198,7 @@ These are off-chain consistency checks, not hardware isolation or independently 
 
 ## Security model
 
-Full threat model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). In short, both contracts enforce caller, hash format, order validity, delta, leverage, slippage ceiling, nonce, and deposit/gas rules, and only then call the MPC signer. v2 additionally checks a payload commitment; v3 instead builds the order and its digest itself and adds the price band, Hyperliquid price rules, a notional band and the per-network market table. Both **trust** the solver's treasury size, collateral and slippage figures, and v3 trusts the solver's reference price, because a contract cannot see balances or prices. v2's open findings **F-1** (a `u64::MAX` nonce blocks all future orders) and **F-2** (storage exhaustion) are **fixed in v3** by the millisecond nonce window and caller-paid storage. The v3 hedge key can only sign the orders the contract builds; it cannot sign a transfer or withdrawal.
+Full threat model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). v2 and the current v3.1 contract enforce caller, hash format, raw order validity, delta, leverage, slippage ceiling, nonce, and deposit/gas rules before requesting MPC signing. v2 signs a domain-separated order commitment. v3.1 builds the Hyperliquid order and digest itself, checks price/tick/notional rules, and adds coin size caps, a rolling signing window and bounded expiry. Both trust the solver's reported treasury, collateral and slippage; v3.1 also trusts its reference price. The contract does not independently verify those balances or prices. v2's open findings F-1 (nonce exhaustion) and F-2 (caller-unpaid storage) were addressed in v3 and remain addressed in v3.1; v3 itself is superseded because of its disclosed size-inflation flaw. The v3.1 hedge key can sign only the order type the contract builds, not transfers or withdrawals.
 
 ## Real versus simulated
 
@@ -207,6 +207,7 @@ Full threat model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). In short, b
 | Risk Guard **v3.1**: contract-built Hyperliquid order, coin size caps, `expiresAfter`, on-chain EIP-712 digest, contract-originated MPC signature, lock, rejected attacks | **Real on NEAR testnet** (historical proof, re-verified live by verify §11). v3 is superseded history (§10). |
 | Hyperliquid order signature | **Executable Hyperliquid TESTNET order signature; the exchange recovered the contract's hedge address from it** (recorded response; not re-runnable, because Hyperliquid remembers the nonce). No order filled: the address has no Hyperliquid account. Mainnet funds and a hardware TEE remain future work. |
 | Risk Guard v2 contract, policy, lock, 5 transactions, contract-originated MPC signature over an order commitment | **Real on NEAR testnet** (historical proof, re-verified live) |
+| Try the current contract proposal checks | **Live v3.1 view call** (read-only, no signature or transaction) |
 | `check_order_params` on every dashboard run | **Live read-only check** |
 | NEAR RPC, `intents.near` `simulate_intents` (mainnet), 1Click tokens and quotes, Hyperliquid funding | **Live** |
 | NEP-413 signing, nacl.box slice encryption, keccak256 commitments, secp256k1 signature recovery | **Real cryptography** |
@@ -237,6 +238,7 @@ Full threat model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). In short, b
 All ZeroDelta code was written inside the hackathon window (first commit 2026-11-08; the window opened 2026-10-19), so there is no pre-hackathon baseline. v3 was built on the dedicated branch [`v3-executable-signing`](https://github.com/g4stein/zerodelta/tree/v3-executable-signing) from the safety tag `v2-before-v3`.
 
 - Full diff: [`v2-before-v3...hackathon-submission`](https://github.com/g4stein/zerodelta/compare/v2-before-v3...hackathon-submission) (historical v3.1 submission snapshot; subsequent hardening is on the current branch).
+- Post-snapshot hardening: [`hackathon-submission...main`](https://github.com/g4stein/zerodelta/compare/hackathon-submission...main). The historical submission tag is preserved.
 - New: [`contracts/risk-guard-v3/`](contracts/risk-guard-v3/) (contract, integer-only Hyperliquid encoder and digest, 44 tests), [`src/lib/hyperliquid/fixedPoint.ts`](src/lib/hyperliquid/fixedPoint.ts) and [`v3Hedge.ts`](src/lib/hyperliquid/v3Hedge.ts) (TS mirror), [`scripts/testnet-setup-v3.ts`](scripts/testnet-setup-v3.ts), [`scripts/hl-acceptance.ts`](scripts/hl-acceptance.ts), verify §10, the dashboard's v3 panel.
 - v3.1 (after the pre-merge audit): [`contracts/risk-guard-v31/`](contracts/risk-guard-v31/) (coin size caps, rolling window, `expiresAfter`, $10 minimum, safe MPC callback), [`v31Hedge.ts`](src/lib/hyperliquid/v31Hedge.ts), [`scripts/testnet-setup-v31.ts`](scripts/testnet-setup-v31.ts), [`contracts/mutation-test.py`](contracts/mutation-test.py), verify §11. The off-chain checker now compares both notionals, and `hl:acceptance` no longer overwrites recorded evidence.
 - Unchanged: the v2 contract, its WASM and its five transactions. `testnet-proof.json` now has v3.1 at the top, v3 under `previousDeployment` and v2 inside that (v3 byte-identical in [`proofs/testnet-proof.v3.json`](proofs/testnet-proof.v3.json)); [`proofs/testnet-proof.v2.json`](proofs/testnet-proof.v2.json) is the original v2 file, byte for byte (sha256 `99a0feb3…`, checked in CI).
@@ -260,7 +262,13 @@ Next.js 16, React 19, Tailwind 4, near-api-js 7, near-sdk 5.5 (Rust), secp256k1 
 
 ### API
 
-`GET /api/swarm` returns live telemetry plus the v2 contract's state, the re-verified v2 proof transactions, and `onchainV3` (the v3 contract's lock state and attestation #0 compared with the proof). `POST /api/swarm` with `{ "mode": "rebalance" | "rogue" | "spoofed_metrics", "treasuryUsd": 10000–1000000, "pair": "AUTO" | "NEAR" | "SOL" | "ETH" | "BTC", "sliceCount": "auto" | 1–24, "simulateUnprofitable": true }` runs the swarm (input is clamped; only boolean `true` enables the override).
+`GET /api/hedge-preview?scenario=<case>` reads the deployed v3.1 contract. Cases are `approved`, `size-attack`, `expiry-attack` and `price-risk` (default: `approved`). The response includes `request`, `evaluation`, `contractId`, `blockHeight` and `checkedAt`. RPC failure returns HTTP 503 with `live: false`; unknown scenarios return 400. It never signs or broadcasts.
+
+```bash
+curl -fsS 'https://zerodelta.vercel.app/api/hedge-preview?scenario=size-attack' | jq '.evaluation.violations'
+```
+
+`GET /api/swarm` returns live telemetry plus the v2 contract's state, the re-verified v2 proof transactions, and `onchainV3` (the current v3.1 contract's lock state and attestation #0 compared with the proof). `POST /api/swarm` with `{ "mode": "rebalance" | "rogue" | "spoofed_metrics", "treasuryUsd": 10000–1000000, "pair": "AUTO" | "NEAR" | "SOL" | "ETH" | "BTC", "sliceCount": "auto" | 1–24, "simulateUnprofitable": true }` runs the swarm (input is clamped; only boolean `true` enables the override).
 
 ```bash
 curl -s https://zerodelta.vercel.app/api/swarm | jq '{contract: .onchain.contractId, locked: .onchain.guard.locked, allVerified: .onchain.allVerified}'

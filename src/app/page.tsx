@@ -685,6 +685,7 @@ function HonestyPanel() {
     { label: "Rogue 10x order rejected by contract math", status: "Failed tx (on purpose)", tone: "cyan", href: tx("ROGUE_REBALANCE_REJECTED") },
     { label: "Spoofed MPC payload rejected (commitment)", status: "Failed tx (on purpose)", tone: "cyan", href: tx("PAYLOAD_SWAP_REJECTED") },
     { label: "Replayed order rejected (nonce)", status: "Failed tx (on purpose)", tone: "cyan", href: tx("REPLAY_REJECTED") },
+    { label: "Try the current contract proposal checks (no signature)", status: "Live v3.1 view (read-only)", tone: "emerald" },
     { label: "Contract recomputes every dashboard run", status: "Live view call", tone: "emerald" },
     { label: "Multi-asset ranking + slice negotiation", status: "Live quotes", tone: "emerald" },
     { label: "v3.1 contract builds the Hyperliquid order + EIP-712 digest (size caps, expiry), then calls MPC sign", status: "Testnet tx", tone: "cyan", href: V3_TX("APPROVED_EXECUTABLE_HEDGE_SIGNED") },

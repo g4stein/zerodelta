@@ -1,21 +1,21 @@
 {
   "project": "ZeroDelta",
   "schema": 2,
-  "generatedAt": "2026-11-11T17:50:37.895Z",
+  "generatedAt": "2026-11-11T20:04:07.443Z",
   "overall": "PASS",
   "mode": "live",
   "source": {
-    "commit": "9bbe69a5cfaa0a0072555a02a30506eb062322d2",
-    "branch": "v3-executable-signing",
-    "dirty": true,
-    "uncommittedDiffSha256": "8a991c410504812d637937b90a42cdd353912933ecbf987ae72367d291b87672",
-    "note": "`commit` is the commit the run started from. A report committed to the repo therefore names its parent commit (dirty = true). For a report bound to one exact commit, use the CI artifact verify-report-offline-<sha>."
+    "commit": "9d8039e5cc5ac62bb9389e1c328ef6d2a1fd150c",
+    "branch": "final-judge-docs",
+    "dirty": false,
+    "uncommittedDiffSha256": null,
+    "note": "`commit` is the commit the run started from. A report saved in a subsequent commit names the previously checked source; dirty describes tracked changes at the start of that run. For a report bound to one exact commit, use the CI artifact verify-report-offline-<sha>."
   },
   "environment": {
-    "node": "v22.23.4",
+    "node": "v24.22.1",
     "platform": "linux-x64",
     "ci": false,
-    "rust": "rustc 1.92.0 (ded5c06cf 2025-12-08)"
+    "rust": "rustc 1.81.0 (eeb90cda1 2024-09-04)"
   },
   "totals": {
     "checks": 95,
@@ -23,7 +23,7 @@
     "WARN": 0,
     "SKIP": 0,
     "FAIL": 0,
-    "durationSec": 11.1
+    "durationSec": 12.1
   },
   "bySection": {
     "1. NEP-413 Ed25519 intent cryptography": {
@@ -229,25 +229,25 @@
       "section": "1. NEP-413 Ed25519 intent cryptography",
       "name": "Ephemeral ed25519 key + implicit account",
       "level": "PASS",
-      "detail": "ed25519:F9DnKfgaYqMeajoEn8rMxjHLirqSBfojfZnm7szXDANi → d21eb7265d2aa4009925f423c745f2083fff04ba66e3093f170366d9703f530f"
+      "detail": "ed25519:Fi6MPDQDYx1LQfB7zbFp8im2KS9inJz7axyJmtgVZbQu → da8a7b2457dc1a7604e5c90867b9bb918271c50866dafcf3ba328e60a2029412"
     },
     {
       "section": "1. NEP-413 Ed25519 intent cryptography",
       "name": "32-byte random nonce",
       "level": "PASS",
-      "detail": "00ad31d5d04230c9f136602d36a8bc638007ab1621cfd6b32e175f97e4ce3eb7"
+      "detail": "40299b1b9f435ad55f9bd0daf17d5f334923cd5aa2a3d0cb425cb2a1f509b724"
     },
     {
       "section": "1. NEP-413 Ed25519 intent cryptography",
       "name": "Signature verifies (tweetnacl)",
       "level": "PASS",
-      "detail": "sig 468d777bcf9fbabf362dd641f3a246d5…"
+      "detail": "sig 7fcda0f1c3782197288a0e655bcd0f2c…"
     },
     {
       "section": "1. NEP-413 Ed25519 intent cryptography",
       "name": "Signature verifies (near-api-js PublicKey.verify)",
       "level": "PASS",
-      "detail": "sha256(borsh) bdc7a640a30c71d9d5b9d6a28d7fce40…"
+      "detail": "sha256(borsh) ccc59e278bf17edd4786ab3d5ec3a10f…"
     },
     {
       "section": "1. NEP-413 Ed25519 intent cryptography",
@@ -265,19 +265,19 @@
       "section": "2. Live NEAR JSON-RPC",
       "name": "testnet status + gas price",
       "level": "PASS",
-      "detail": "block #277248330 9W72M2bQPpEPrvZg2L2bykM59RytTheoRNWxxSPUoMk5 · gas 100000000 · https://test.rpc.fastnear.com 199ms"
+      "detail": "block #277261844 DtDTBv8NbDH8uwopG5TwVxDGNoZ87UHeLHbk6z4DM774 · gas 100000000 · https://test.rpc.fastnear.com 208ms"
     },
     {
       "section": "2. Live NEAR JSON-RPC",
       "name": "mainnet status + gas price",
       "level": "PASS",
-      "detail": "block #224098113 6DKZt4X1y1yFq1DvyZ5AxnxQbUx7bnHLzo8BjhCBVBL2 · gas 100000000 · https://free.rpc.fastnear.com 181ms"
+      "detail": "block #224111362 Ba85nXNsjSVEFt7fstBPJPVqE9WZDAmGmSPri8aVsacu · gas 100000000 · https://free.rpc.fastnear.com 150ms"
     },
     {
       "section": "2. Live NEAR JSON-RPC",
       "name": "view_account intents.near (mainnet)",
       "level": "PASS",
-      "detail": "contract code BtA1BEFNS619KkvXFsgcpQ21Tb5yMm32aaUkn7xNothk, 13,586,342,196 bytes storage, block #224098111"
+      "detail": "contract code BtA1BEFNS619KkvXFsgcpQ21Tb5yMm32aaUkn7xNothk, 13,590,223,632 bytes storage, block #224111360"
     },
     {
       "section": "2. Live NEAR JSON-RPC",
@@ -301,7 +301,7 @@
       "section": "4. Live intents.near Verifier (simulate_intents on mainnet)",
       "name": "Signed NEP-413 auth probe executes",
       "level": "PASS",
-      "detail": "intent_hash DmpdJKmgve7SzovW6eQpPAKg1LzpVJ8Bts7eT2KbLLFV (salt 252812b3)"
+      "detail": "intent_hash EnLwnN4yJzDV4PTfxbHyc2VGvX7iCRXrdT9vC1DRZmE2 (salt 252812b3)"
     },
     {
       "section": "4. Live intents.near Verifier (simulate_intents on mainnet)",
@@ -319,19 +319,19 @@
       "section": "5. Live NEAR Intents 1Click API",
       "name": "GET /v0/tokens",
       "level": "PASS",
-      "detail": "229 assets across 39 chains (abs, adi, aleo, aptos, arb, avax, base, bch…) in 280ms"
+      "detail": "229 assets across 39 chains (abs, adi, aleo, aptos, arb, avax, base, bch…) in 314ms"
     },
     {
       "section": "5. Live NEAR Intents 1Click API",
       "name": "POST /v0/quote (dry)",
       "level": "PASS",
-      "detail": "1000 USDC → 264.957812563646782582400562 wNEAR ($998.89), quote sig ed25519:4Ge1UNe4csTeGq89…"
+      "detail": "1000 USDC → 267.956768186751016650470933 wNEAR ($996.80), quote sig ed25519:4W5HSXAtuB9Kw7nT…"
     },
     {
       "section": "6. Live perp funding feed (Hyperliquid)",
       "name": "metaAndAssetCtxs funding",
       "level": "PASS",
-      "detail": "BTC 10.95% APR, ETH 10.95% APR, SOL 4.52% APR, NEAR 10.95% APR"
+      "detail": "BTC 10.95% APR, ETH 3.85% APR, SOL 10.83% APR, NEAR 10.95% APR"
     },
     {
       "section": "7. Deterministic risk policy, contract mirror and adversarial cases (offline)",
@@ -367,7 +367,7 @@
       "section": "7. Deterministic risk policy, contract mirror and adversarial cases (offline)",
       "name": "Offline replay of the approved order rejected",
       "level": "PASS",
-      "detail": "NONCE_ALREADY_USED: 1794419429160000 was already approved by this guard"
+      "detail": "NONCE_ALREADY_USED: 1794427437918000 was already approved by this guard"
     },
     {
       "section": "7. Deterministic risk policy, contract mirror and adversarial cases (offline)",
@@ -409,25 +409,25 @@
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Agent 1 recommendation is consistent with the live matrix",
       "level": "PASS",
-      "detail": "TRADE: NEAR earns an estimated 8.062% net carry (4.811% on the whole treasury). Estimate, not a guarantee: funding chang"
+      "detail": "TRADE: BTC earns an estimated 6.035% net carry (4.024% on the whole treasury). Estimate, not a guarantee: funding change"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Agent 1 ranked all 4 markets by net-of-cost carry",
       "level": "PASS",
-      "detail": "#1 NEAR 10.95% gross -> 8.062% net | #2 ETH 10.95% gross -> 5.762% net | #3 BTC 10.95% gross -> 4.202% net | #4 SOL 4.516% gross -> -5.266% net (4/4 live cost probes)"
+      "detail": "#1 BTC 10.95% gross -> 6.035% net | #2 SOL 10.829% gross -> 4.398% net | #3 NEAR 10.95% gross -> 3.708% net | #4 ETH 3.854% gross -> -0.623% net (4/4 live cost probes)"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Agent 1/2 slice negotiation converged",
       "level": "PASS",
-      "detail": "1sl 0bps ACCEPTED"
+      "detail": "1sl 0.64bps ACCEPTED"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "Autonomous delta-neutral rebalance ($50,000, AUTO pair, auto slices)",
       "level": "PASS",
-      "detail": "APPROVED NEAR; net delta 0.00%, leverage 1.19x, slippage 0 bps, 1 slices"
+      "detail": "APPROVED BTC; net delta 0.00%, leverage 1.34x, slippage 0.64 bps, 1 slices"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
@@ -439,19 +439,19 @@
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  MPC request is routed through the Risk Guard contract",
       "level": "PASS",
-      "detail": "zerodelta-guard-fb604f.testnet.record_rebalance -> v1.signer-prod.testnet.sign(e0318a3133f49a6d…) -> hedge key 0x9d5A25917b23C1CF60fD5c7695621FD3Dca754dD"
+      "detail": "zerodelta-guard-fb604f.testnet.record_rebalance -> v1.signer-prod.testnet.sign(b0d0705dd9f5fbd1…) -> hedge key 0x9d5A25917b23C1CF60fD5c7695621FD3Dca754dD"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Approval proof + audit chain verify",
       "level": "PASS",
-      "detail": "decision aeb104552ad07afb…, audit root 2d9cd25089a65751…"
+      "detail": "decision dd3d7566d38d57ae…, audit root da866b473e7b3da2…"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Deployed contract recomputes the same order and approves it",
       "level": "PASS",
-      "detail": "check_order_params: 0 bps / 120 (x100), payload match true, nonce fresh true"
+      "detail": "check_order_params: 0 bps / 134 (x100), payload match true, nonce fresh true"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
@@ -463,13 +463,13 @@
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Rejection proof signature verifies",
       "level": "PASS",
-      "detail": "guardian ae8ac707b74d7fa8…"
+      "detail": "guardian 0df37b86ef9e6d51…"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Deployed contract also rejects it on its own math",
       "level": "PASS",
-      "detail": "zerodelta-guard-fb604f.testnet: DELTA_NEUTRALITY: 99987 bps > 200 bps; LEVERAGE_CEILING: 1000 > 300 (x100)"
+      "detail": "zerodelta-guard-fb604f.testnet: DELTA_NEUTRALITY: 99960 bps > 200 bps; LEVERAGE_CEILING: 1000 > 300 (x100)"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
@@ -481,7 +481,7 @@
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Deployed contract flags PAYLOAD_COMMITMENT_MISMATCH",
       "level": "PASS",
-      "detail": "PAYLOAD_COMMITMENT_MISMATCH: expected 73d693bd55d56296536cfc"
+      "detail": "PAYLOAD_COMMITMENT_MISMATCH: expected 026cf5bace419ffca2cd97"
     },
     {
       "section": "9. On-chain NEAR testnet proof (locked Risk Guard v2 + real transactions)",
@@ -787,7 +787,7 @@
       "section": "11. Risk Guard v3.1: size caps + expiry + executable Hyperliquid signature (testnet, current)",
       "name": "v3.1: contract view rebuilds the same digest today (and rejects the reused nonce)",
       "level": "PASS",
-      "detail": "on-chain digest ed00c7d7f4e5ffc7… == TS ed00c7d7f4e5ffc7…; now NONCE_ALREADY_USED+STALE_ORDER"
+      "detail": "on-chain digest ed00c7d7f4e5ffc7… == TS ed00c7d7f4e5ffc7…; now NONCE_ALREADY_USED+STALE_ORDER+EXPIRED"
     },
     {
       "section": "11. Risk Guard v3.1: size caps + expiry + executable Hyperliquid signature (testnet, current)",
