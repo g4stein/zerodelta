@@ -16,7 +16,7 @@ const plan = runScannerAgent({ pair: "ETH", treasuryUsd: 50000, tokens, funding,
 async function setup(live = false) {
   const signer = createEphemeralSigner();
   const solver = await runSolverAgent({ plan, sliceCount: 4, tokens, signer, guardianBoxPublicKey: getGuardianIdentity().boxPublicKeyHex, live });
-  const guard = () => runGuardianAgent({ runId: "boundary", solver, expectedSignerId: signer.accountId, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex], expected: { treasuryUsd: 50000, pair: "ETH" }, lastAcceptedNonce: 0 });
+  const guard = () => runGuardianAgent({ runId: "boundary", solver, expectedSignerId: signer.accountId, allowOfflineQuotes: !live, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex], expected: { treasuryUsd: 50000, pair: "ETH" }, lastAcceptedNonce: 0 });
   const rewrite = (change: (msg: any) => void, reattest = true, alternateSigner = false) => {
     const msg = JSON.parse(solver.intent.signed.payload.message);
     change(msg);
@@ -26,7 +26,7 @@ async function setup(live = false) {
     solver.intent.signed = replacement.signed;
     if (reattest) {
       solver.intent.payloadHashHex = replacement.payloadHashHex;
-      solver.attestation = signAttestation(getSolverEnclave(), computeReportData({ envelopeHash: solver.envelope.envelopeHash, intentPayloadHash: replacement.payloadHashHex, planHash: hashObject(solver.executablePlan), hedgeOrderPayloadHex: solver.hedgeOrderPayloadHex }));
+      solver.attestation = signAttestation(getSolverEnclave(), computeReportData({ envelopeHash: solver.envelope.envelopeHash, intentPayloadHash: replacement.payloadHashHex, planHash: hashObject(solver.executablePlan), hedgeOrderPayloadHex: solver.hedgeOrderPayloadHex, quotesHash: hashObject(solver.quotes) }));
     }
   };
   return { solver, guard, rewrite };

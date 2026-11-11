@@ -74,7 +74,7 @@ function scannerPlan(pair: PairId = "NEAR", treasuryUsd = 50_000) {
 }
 
 function guard(solver: SolverResult, now?: Date, lastAcceptedNonce = 0) {
-  return runGuardianAgent({ runId: "test", expectedSignerId: solver.signer.accountId, solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex], now, lastAcceptedNonce });
+  return runGuardianAgent({ runId: "test", expectedSignerId: solver.signer.accountId, allowOfflineQuotes: true, solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex], now, lastAcceptedNonce });
 }
 
 // ---------------------------------------------------------------------------
@@ -492,10 +492,10 @@ describe("Swarm orchestrator (offline mode)", () => {
     expect(run.guardian.decision).toBe("APPROVED");
     expect(run.settlement.status).toBe("SKIPPED_OFFLINE");
     expect(run.steps.map((s) => s.agent)).toEqual(["scanner", "solver", "guardian", "settlement"]);
-    expect(verifyAuditChain(run.audit.events)).toBe(true);
+    expect(verifyAuditChain(run.audit.events, run.audit.seal, run.guardian.guardianPublicKey, run.guardian.decisionHash)).toBe(true);
     expect(run.audit.rootHash).toBe(run.audit.events.at(-1)!.hash);
     const tampered = run.audit.events.map((e, i) => (i === 3 ? { ...e, detail: e.detail, dataHash: hashObject("x") } : e));
-    expect(verifyAuditChain(tampered)).toBe(false);
+    expect(verifyAuditChain(tampered, run.audit.seal, run.guardian.guardianPublicKey, run.guardian.decisionHash)).toBe(false);
     // The ephemeral ed25519 private key and enclave/guardian secret keys never leave the server process.
     expect(JSON.stringify(run)).not.toMatch(/secretKey|secret_key|privateKey|keyPair/i);
   });

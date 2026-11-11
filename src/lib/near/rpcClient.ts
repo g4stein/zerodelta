@@ -508,9 +508,11 @@ export async function fetchOneClickQuote(
     const body = (await res.json().catch(() => ({}))) as Partial<RawQuoteResponse>;
     if (!res.ok || !body.quote) throw new Error(body.message ?? `HTTP ${res.status}`);
     const q = body.quote;
-    if (q.amountIn !== request.amount || ![q.amountIn, q.amountOut, q.minAmountOut].every(x => typeof x === "string" && /^[1-9][0-9]*$/.test(x)) || BigInt(q.minAmountOut) > BigInt(q.amountOut) || ![q.amountInUsd, q.amountOutUsd].every(x => Number.isFinite(Number(x)) && Number(x) > 0)) {
+    if (q.amountIn !== request.amount || ![q.amountIn, q.amountOut, q.minAmountOut].every(x => typeof x === "string" && /^[1-9][0-9]*$/.test(x)) || BigInt(q.minAmountOut) > BigInt(q.amountOut) || ![q.amountInUsd, q.amountOutUsd].every(x => typeof x === "string" && x.trim() !== "" && Number.isFinite(Number(x)) && Number(x) > 0)) {
       throw new Error("invalid quote amounts");
     }
+    const minimumReceipt = BigInt(q.amountOut) * BigInt(10000 - request.slippageTolerance) / 10000n;
+    if (BigInt(q.minAmountOut) < minimumReceipt) throw new Error("minimum receipt is below requested slippage bound");
     if (body.timestamp !== undefined) {
       const age = Date.now() - Date.parse(body.timestamp);
       if (!Number.isFinite(age) || age < -5000 || age > 60000) throw new Error("quote timestamp is stale or invalid");

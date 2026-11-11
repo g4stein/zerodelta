@@ -149,7 +149,7 @@ Results of the latest full run. [`verify-report.json`](verify-report.json) is th
 | Command | Result | Network |
 |---|---|---|
 | `npm run typecheck` | clean | none |
-| `npm test` | **144 tests**, 7 files, including intent-boundary regressions and preview scenarios: [`swarm.test.ts`](tests/swarm.test.ts), [`adversarial.test.ts`](tests/adversarial.test.ts), [`hyperliquid.test.ts`](tests/hyperliquid.test.ts), [`hlParity.test.ts`](tests/hlParity.test.ts), [`proofFile.test.ts`](tests/proofFile.test.ts) | none (fetch mocked where used) |
+| `npm test` | **184 tests**, 8 files, including intent-boundary regressions and preview scenarios: [`swarm.test.ts`](tests/swarm.test.ts), [`adversarial.test.ts`](tests/adversarial.test.ts), [`hyperliquid.test.ts`](tests/hyperliquid.test.ts), [`hlParity.test.ts`](tests/hlParity.test.ts), [`proofFile.test.ts`](tests/proofFile.test.ts) | none (fetch mocked where used) |
 | `cd contracts/risk-guard && cargo test` | **33 tests** (v2): 18 unit tests in `src/lib.rs` + 15 in [`tests/adversarial.rs`](contracts/risk-guard/tests/adversarial.rs) | none (Rust 1.81) |
 | `cd contracts/risk-guard-v3 && cargo test` | **44 tests** (v3): 6 unit, 5 official Hyperliquid SDK vectors, 5 TS parity (incl. 110 contract-level cases), 28 [adversarial](contracts/risk-guard-v3/tests/adversarial.rs) | none (Rust 1.81) |
 | `cd contracts/risk-guard-v31 && cargo test` | **55 tests** (v3.1): 6 unit, 6 official Hyperliquid SDK vectors, 5 TS parity (134 contract-level cases), 38 [adversarial](contracts/risk-guard-v31/tests/adversarial.rs) (size caps, window, expiry, minimum value, malformed MPC response). [`MUTATION_RESULTS.md`](contracts/risk-guard-v31/MUTATION_RESULTS.md): **27/27** deliberate bugs caught (v3: [15/15](contracts/risk-guard-v3/MUTATION_RESULTS.md)); re-run with `npm run mutation:v31` | none (Rust 1.81) |
@@ -187,6 +187,14 @@ The agents are deterministic TypeScript modules with separate responsibilities, 
 - **Agent 1 ↔ Agent 2 negotiation** ([`orchestrator.ts`](src/lib/swarm/orchestrator.ts)): if a slice's slippage exceeds 10 bps, `SOLVER_SLIPPAGE_FEEDBACK` → `SCANNER_RESLICE_ADJUSTMENT` with `slices × (observed / target)²`, up to 3 reslices, all in the hash-chained audit trail.
 - **Agent 2, solver** ([`solverAgent.ts`](src/lib/agents/solverAgent.ts)): live quotes, hedge sized to the quoted fill, encrypted TWAP slices (`nacl.box`), NEP-413 intent, raw order in cents, keccak256 payload, time-based nonce, (simulated) attestation bound to all of them.
 - **Agent 3, guard** ([`guardianAgent.ts`](src/lib/agents/guardianAgent.ts)): delta, leverage, slippage, TEE attestation, NEP-413 intent, envelope integrity, order-to-payload binding (incl. trusted treasury/pair), anti-replay (exact nonce set, on-chain `last_nonce`, 5-minute freshness) and guard-gated MPC routing. It prepares the `record_rebalance` call, never a direct MPC call.
+
+## Off-chain validation after the second review
+
+The guard derives exposure from canonical leg directions and integer cents, checks the plan hash, and validates every executable slice field. Quotes are produced by a separate in-process adapter that keeps a short-lived, recipient-bound evidence record; altered solver quote metadata is rejected even if re-attested. Live guards refuse offline-model evidence. Attestations bind the entire quote set as well as the intent, plan and envelope.
+
+Audit events include their explanations in canonical hashes, and a signed final seal binds the root, event count and decision. Verifiers require the expected guardian identity and decision hash. Recorded exchange verification re-parses all three raw responses and recomputes the order digest and signer recovery instead of trusting stored PASS flags.
+
+These are off-chain consistency checks, not hardware isolation or independently signed exchange quotes. A fully compromised server, dishonest upstream data, unverified actual holdings and outstanding positions remain production limitations. [Second review and regression evidence](docs/SECOND_REVIEW.md).
 
 ## Security model
 

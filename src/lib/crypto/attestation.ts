@@ -136,6 +136,6 @@ export function verifyAttestation(att: SignedAttestation, policy: AttestationPol
 }
 
 /** report_data = sha256(canonical({ envelopeHash, intentPayloadHash, planHash, hedgeOrderPayloadHex })). */
-export function computeReportData(input: { envelopeHash: string; intentPayloadHash: string; planHash: string; hedgeOrderPayloadHex?: string }): string {
+export function computeReportData(input: { envelopeHash: string; intentPayloadHash: string; planHash: string; hedgeOrderPayloadHex?: string; quotesHash?: string }): string {
   return hashObject(input);
 }
