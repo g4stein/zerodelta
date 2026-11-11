@@ -25,7 +25,7 @@ const plan = (pair: PairId = "ETH", treasuryUsd = 50_000) => runScannerAgent({ p
 const solve = (p: RebalancePlan, sliceCount = 4): Promise<SolverResult> =>
   runSolverAgent({ plan: p, sliceCount, tokens, signer: createEphemeralSigner(), guardianBoxPublicKey: getGuardianIdentity().boxPublicKeyHex, live: false });
 const guard = (solver: SolverResult, extra: Partial<Parameters<typeof runGuardianAgent>[0]> = {}) =>
-  runGuardianAgent({ runId: "adv", solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex], ...extra });
+  runGuardianAgent({ runId: "adv", expectedSignerId: solver.signer.accountId, solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex], ...extra });
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -221,7 +221,7 @@ describe("Intent and attestation tampering", () => {
     const other = createEphemeralSigner();
     const forged = signNep413(other.keyPair, { message: s.intent.signed.payload.message, nonce: generateNonce(), recipient: "intents.near" });
     const d = guard({ ...s, intent: { ...s.intent, ...forged } });
-    expect(d.checks.find((c) => c.id === "NEP413_SIGNATURE")!.detail).toMatch(/signer_id/);
+    expect(d.checks.find((c) => c.id === "NEP413_SIGNATURE")!.detail).toMatch(/SIGNER_MISMATCH/);
   });
 
   it("rejects an attestation signed by an untrusted enclave key", async () => {

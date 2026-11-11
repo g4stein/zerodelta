@@ -14,11 +14,11 @@ In **v3.1** the contract also builds the executable Hyperliquid order itself, ca
 
 **2. The exchange's signer recovery confirms the binding.** [`hl-acceptance.json`](../hl-acceptance.json): Hyperliquid testnet `/exchange` recovered `0xa74e082a55e862845d510f8d609d315afd859f5e` from the real signature, `0x1989…c074` with `v` flipped and `0x54a3…c264` with one bit of `s` flipped. The link from the risk-checked legs to that digest is verify §11's *recorded digest == fresh TS rebuild* plus the live *contract view rebuilds the same digest today*. Hyperliquid remembers each (signer, nonce), so this exact post cannot be repeated: `npm run hl:acceptance` re-checks the recorded evidence offline, and `-- --live` reports a repeat as SPENT.
 
-**3. Reproducible adversarial proof.** v3.1: 55 Rust tests (official Hyperliquid SDK vectors, 134 contract-level cases byte-identical to the TypeScript mirror, an adversarial test for every rejection) and a mutation run in which 27/27 deliberate contract bugs were caught ([`MUTATION_RESULTS.md`](../contracts/risk-guard-v31/MUTATION_RESULTS.md); v3: 15/15). v2: 33 Rust tests. 118 TypeScript tests. `npm run verify` (95 checks) re-fetches every historical transaction of both contracts from an archival RPC and checks that no rejected transaction produced an MPC receipt.
+**3. Reproducible adversarial proof.** v3.1: 55 Rust tests (official Hyperliquid SDK vectors, 134 contract-level cases byte-identical to the TypeScript mirror, an adversarial test for every rejection) and a mutation run in which 27/27 deliberate contract bugs were caught ([`MUTATION_RESULTS.md`](../contracts/risk-guard-v31/MUTATION_RESULTS.md); v3: 15/15). v2: 33 Rust tests. 144 TypeScript tests. `npm run verify` (95 checks) re-fetches every historical transaction of both contracts from an archival RPC and checks that no rejected transaction produced an MPC receipt.
 
 ## Where to click (about 3 minutes)
 
-1. **Do** open [zerodelta.vercel.app](https://zerodelta.vercel.app/) **→ see** the top bar, a **LIVE READ-ONLY CHECK** of NEAR and the v2 contract, and under it the **v3.1 panel**.
+1. **Do** open [zerodelta.vercel.app](https://zerodelta.vercel.app/) **→ see** **Try the current contract** first. Select **Within policy**, then **Attack: inflate size** and **Attack: long expiry**, clicking **Check proposal** each time. These fresh read-only v3.1 calls display the contract's verdict, order, digest and block. Select **Inspect remaining price risk** to see the explicitly disclosed trusted-price limitation. No transaction or signature is created. The network/v2 strip is collapsed under the current proof.
 2. **Do** read the v3.1 panel left to right **→ see** approved legs → contract-built order (IOC sell on testnet market 4) → digest (green checks: *recomputed in your browser* equals the contract's digest) → MPC `{r, s, v}` (recovers to the hedge address in your browser; flipped `v` does not) → Hyperliquid testnet's recorded answer for the real and both corrupted signatures. The top-right badges are read live from the v3.1 contract: *locked (0 keys)* and *attestation #0 Signed; digest, {r,s,v} and action match the proof*.
 3. **Do** click the links under the panel **→ see** the rejected v3.1 transactions on Nearblocks: `ORDER_SIZE_CAP` (the size-inflation attack), `EXPIRY_TOO_FAR`, `NONCE_ALREADY_USED`, `Method on_mpc_signed is private`.
 4. **Do** click the amber **Simulate Compromised Solver** (v2 demo, unchanged) **→ see** the solver's claim (≈0% delta) next to what its payload really commits to (≈1000% delta, 10x), the deployed contract's live verdict and the matching historical on-chain rejection.
@@ -30,12 +30,12 @@ In **v3.1** the contract also builds the executable Hyperliquid order itself, ca
 npm ci && npm run typecheck && npm test && npm run build
 npm run verify              # live, read-only; §10 is v3 (superseded history), §11 is v3.1
 npm run verify:offline      # no network
-npm run hl:acceptance       # POSTs the recorded signed order to Hyperliquid TESTNET; expect PASS
+npm run hl:acceptance       # offline: checks recorded signer-recovery evidence; expect PASS
 cd contracts/risk-guard && cargo test      # v2, Rust 1.81
 cd contracts/risk-guard-v31 && cargo test  # v3.1, Rust 1.81
 ```
 
-`npm run hl:acceptance` sends no NEAR transaction and moves no funds; it passes only if the address in Hyperliquid's answer equals the pinned hedge address and both corrupted signatures recover other addresses. Details: [VERIFICATION.md](VERIFICATION.md).
+`npm run hl:acceptance` makes no network requests and writes nothing. It checks the recorded exchange responses against the proof: the real signature must recover the pinned hedge address, and both corrupted signatures must recover different addresses. `npm run hl:acceptance -- --live` posts the recorded order and the two controls to Hyperliquid testnet; a repeated nonce is reported as `SPENT`, not a fresh pass. It writes only the git-ignored local report and sends no NEAR transaction. Details: [VERIFICATION.md](VERIFICATION.md).
 
 ## Key files
 

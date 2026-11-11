@@ -74,7 +74,7 @@ function scannerPlan(pair: PairId = "NEAR", treasuryUsd = 50_000) {
 }
 
 function guard(solver: SolverResult, now?: Date, lastAcceptedNonce = 0) {
-  return runGuardianAgent({ runId: "test", solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex], now, lastAcceptedNonce });
+  return runGuardianAgent({ runId: "test", expectedSignerId: solver.signer.accountId, solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex], now, lastAcceptedNonce });
 }
 
 // ---------------------------------------------------------------------------

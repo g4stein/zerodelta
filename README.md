@@ -88,8 +88,8 @@ flowchart LR
   C[(Risk Guard contract<br/>zerodelta-guard-fb604f.testnet<br/>0 access keys)] -- "only after on-chain math,<br/>commitment + nonce checks" --> M[v1.signer-prod.testnet<br/>sign]
 ```
 
-- **Chain Signatures:** `v1.signer-prod.testnet` derives the hedge key from `(predecessor, path)`. The predecessor is the contract, so v2's key ([`0x9d5A…754dD`](https://testnet.nearblocks.io/txns/DZaDDUGQQLBkdZHiZxn95NtrmeUiGrd3a7af4hn37JfV)) is usable only through `record_rebalance`, and v3's key `0xef63…2c66` (path `zerodelta/hedge/hyperliquid`) only through `sign_executable_hedge`.
-- **v3:** the same flow, except the solver calls `sign_executable_hedge` on [`zerodelta-guard-v3-a9c75f.testnet`](https://testnet.nearblocks.io/address/zerodelta-guard-v3-a9c75f.testnet), which builds the Hyperliquid IOC sell and its EIP-712 digest on-chain and has the MPC sign that digest ([contract README](contracts/risk-guard-v3/README.md)).
+- **Chain Signatures:** `v1.signer-prod.testnet` derives the hedge key from `(predecessor, path)`. The predecessor is the contract, so v2's key ([`0x9d5A…754dD`](https://testnet.nearblocks.io/txns/DZaDDUGQQLBkdZHiZxn95NtrmeUiGrd3a7af4hn37JfV)) is usable only through `record_rebalance`, and the current v3.1 key `0xa74e…9f5e` (path `zerodelta/hedge/hyperliquid`) only through `sign_executable_hedge`.
+- **v3.1:** the executable-signing path calls `sign_executable_hedge` on [`zerodelta-guard-v31-c6e71c.testnet`](https://testnet.nearblocks.io/address/zerodelta-guard-v31-c6e71c.testnet). It builds the size-capped Hyperliquid IOC sell and its EIP-712 digest on-chain, bounds expiry, and has the MPC sign that digest ([contract source](contracts/risk-guard-v31/src/lib.rs)). The earlier v3 deployment is superseded history.
 - **Keyless account:** the deploy transaction deleted the contract account's only full-access key. Policy, solver and code are immutable.
 - **NEAR Intents:** spot legs are priced with live 1Click dry quotes and the swarm's NEP-413 `token_diff` intent is executed by the real `intents.near` contract via `simulate_intents` (signature accepted, then stops at the balance check for the unfunded demo account).
 
@@ -119,6 +119,17 @@ Rogue figures in fresh dry runs differ slightly from tx 3 (e.g. 99,996 vs 99,970
 
 ---
 
+## Try the current contract (read-only)
+
+At the top of the demo, select a proposal and click **Check proposal**:
+
+- **Within policy** → a fresh v3.1 view-call result, with the constructed order and digest.
+- **Attack: inflate size** → `ORDER_SIZE_CAP`.
+- **Attack: long expiry** → `EXPIRY_TOO_FAR`.
+- **Inspect remaining price risk** → a larger sell can still be accepted under the coin cap. This is an exposed limitation, not a safety claim.
+
+Results depend on current contract state. An RPC failure shows unavailable, never a fabricated verdict. Nothing signs or broadcasts. The v2 swarm remains a separate simulation below the current proof. Historical contracts, transaction records and signatures are preserved.
+
 ## Quick start
 
 ```bash
@@ -127,9 +138,9 @@ npm ci                 # Node.js >= 20.9, no API keys
 npm run dev            # http://localhost:3000
 ```
 
-On the page: **do** look at the v3 panel under the telemetry bar **→ see** the five-step chain, with the digest and the signature recovered again in your browser and the v3 contract's lock state read live. **Do** click the green button **→ see** the market ranking, the Agent 1/2 negotiation, 8 passing checks and the contract's verdict. **Do** click the amber button **→ see** the claim-vs-payload panel and `PAYLOAD_COMMITMENT_MISMATCH`. **Do** open the *On-chain proof (testnet)* tab **→ see** the five v2 transactions re-verified live.
+On the page: **do** start with **Try the current contract** above the v3.1 proof panel **→ see** the five-step chain, with the digest and the signature recovered again in your browser and the v3.1 contract's lock state read live. **Do** click the green button **→ see** the market ranking, the Agent 1/2 negotiation, 8 passing checks and the contract's verdict. **Do** click the amber button **→ see** the claim-vs-payload panel and `PAYLOAD_COMMITMENT_MISMATCH`. **Do** open the *On-chain proof (testnet)* tab **→ see** the five v2 transactions re-verified live.
 
-Re-run the exchange check yourself (testnet, no NEAR transaction, no funds): `npm run hl:acceptance` **→ see** `PASS` for the real signature and different addresses for the two corrupted copies.
+Re-check the recorded exchange evidence offline (no network requests or writes): `npm run hl:acceptance` **→ see** `PASS` for the real signature and different addresses for the two corrupted copies.
 
 ## Reproducible tests
 
@@ -138,13 +149,13 @@ Results of the latest full run. [`verify-report.json`](verify-report.json) is th
 | Command | Result | Network |
 |---|---|---|
 | `npm run typecheck` | clean | none |
-| `npm test` | **118 tests**, 5 files: [`swarm.test.ts`](tests/swarm.test.ts), [`adversarial.test.ts`](tests/adversarial.test.ts), [`hyperliquid.test.ts`](tests/hyperliquid.test.ts), [`hlParity.test.ts`](tests/hlParity.test.ts), [`proofFile.test.ts`](tests/proofFile.test.ts) | none (fetch mocked where used) |
+| `npm test` | **144 tests**, 7 files, including intent-boundary regressions and preview scenarios: [`swarm.test.ts`](tests/swarm.test.ts), [`adversarial.test.ts`](tests/adversarial.test.ts), [`hyperliquid.test.ts`](tests/hyperliquid.test.ts), [`hlParity.test.ts`](tests/hlParity.test.ts), [`proofFile.test.ts`](tests/proofFile.test.ts) | none (fetch mocked where used) |
 | `cd contracts/risk-guard && cargo test` | **33 tests** (v2): 18 unit tests in `src/lib.rs` + 15 in [`tests/adversarial.rs`](contracts/risk-guard/tests/adversarial.rs) | none (Rust 1.81) |
 | `cd contracts/risk-guard-v3 && cargo test` | **44 tests** (v3): 6 unit, 5 official Hyperliquid SDK vectors, 5 TS parity (incl. 110 contract-level cases), 28 [adversarial](contracts/risk-guard-v3/tests/adversarial.rs) | none (Rust 1.81) |
 | `cd contracts/risk-guard-v31 && cargo test` | **55 tests** (v3.1): 6 unit, 6 official Hyperliquid SDK vectors, 5 TS parity (134 contract-level cases), 38 [adversarial](contracts/risk-guard-v31/tests/adversarial.rs) (size caps, window, expiry, minimum value, malformed MPC response). [`MUTATION_RESULTS.md`](contracts/risk-guard-v31/MUTATION_RESULTS.md): **27/27** deliberate bugs caught (v3: [15/15](contracts/risk-guard-v3/MUTATION_RESULTS.md)); re-run with `npm run mutation:v31` | none (Rust 1.81) |
 | `npm run verify:offline` | **37 pass, 48 skipped** (live-only) | none |
 | `npm run verify` | **95 checks**, read-only (§10 = v3 history, §11 = v3.1) | public NEAR RPC, 1Click, Hyperliquid |
-| `npm run hl:acceptance` | `PASS`: the exchange recovers the hedge address; both corrupted copies recover other addresses | Hyperliquid **testnet** `/exchange` (POST, no funds) |
+| `npm run hl:acceptance` | `PASS`: recorded exchange responses agree with local signer recovery, including both corrupted controls | none; optional `-- --live` posts to Hyperliquid testnet and may report `SPENT` |
 | `npm run build` | clean | none |
 
 What each layer covers and how to read the report: [docs/VERIFICATION.md](docs/VERIFICATION.md). CI ([`.github/workflows/verify.yml`](.github/workflows/verify.yml)) runs typecheck, tests, build, offline verification and the Rust tests on every push; live verification is a separate manual job because public RPC availability is outside this repo's control.
@@ -217,7 +228,7 @@ Full threat model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). In short, b
 
 All ZeroDelta code was written inside the hackathon window (first commit 2026-11-08; the window opened 2026-10-19), so there is no pre-hackathon baseline. v3 was built on the dedicated branch [`v3-executable-signing`](https://github.com/g4stein/zerodelta/tree/v3-executable-signing) from the safety tag `v2-before-v3`.
 
-- Full diff: [`v2-before-v3...hackathon-submission`](https://github.com/g4stein/zerodelta/compare/v2-before-v3...hackathon-submission) (the `hackathon-submission` tag is set on the final merge; until then see [`v2-before-v3...v3-executable-signing`](https://github.com/g4stein/zerodelta/compare/v2-before-v3...v3-executable-signing)).
+- Full diff: [`v2-before-v3...hackathon-submission`](https://github.com/g4stein/zerodelta/compare/v2-before-v3...hackathon-submission) (historical v3.1 submission snapshot; subsequent hardening is on the current branch).
 - New: [`contracts/risk-guard-v3/`](contracts/risk-guard-v3/) (contract, integer-only Hyperliquid encoder and digest, 44 tests), [`src/lib/hyperliquid/fixedPoint.ts`](src/lib/hyperliquid/fixedPoint.ts) and [`v3Hedge.ts`](src/lib/hyperliquid/v3Hedge.ts) (TS mirror), [`scripts/testnet-setup-v3.ts`](scripts/testnet-setup-v3.ts), [`scripts/hl-acceptance.ts`](scripts/hl-acceptance.ts), verify §10, the dashboard's v3 panel.
 - v3.1 (after the pre-merge audit): [`contracts/risk-guard-v31/`](contracts/risk-guard-v31/) (coin size caps, rolling window, `expiresAfter`, $10 minimum, safe MPC callback), [`v31Hedge.ts`](src/lib/hyperliquid/v31Hedge.ts), [`scripts/testnet-setup-v31.ts`](scripts/testnet-setup-v31.ts), [`contracts/mutation-test.py`](contracts/mutation-test.py), verify §11. The off-chain checker now compares both notionals, and `hl:acceptance` no longer overwrites recorded evidence.
 - Unchanged: the v2 contract, its WASM and its five transactions. `testnet-proof.json` now has v3.1 at the top, v3 under `previousDeployment` and v2 inside that (v3 byte-identical in [`proofs/testnet-proof.v3.json`](proofs/testnet-proof.v3.json)); [`proofs/testnet-proof.v2.json`](proofs/testnet-proof.v2.json) is the original v2 file, byte for byte (sha256 `99a0feb3…`, checked in CI).
@@ -237,7 +248,7 @@ All ZeroDelta code was written inside the hackathon window (first commit 2026-11
 
 Next.js 16, React 19, Tailwind 4, near-api-js 7, near-sdk 5.5 (Rust), secp256k1 (Rust, tests only), tweetnacl, @noble/hashes, @noble/curves, @msgpack/msgpack, bs58, lucide-react, Vitest, tsx. All code was written during the hackathon window (first commit 2026-11-08) with an AI coding agent (Kiro); the hackathon rules allow AI-written code and libraries (HACKATHON.md Q-005).
 
-**Repo map:** contracts [`contracts/risk-guard/`](contracts/risk-guard/) (v2) and [`contracts/risk-guard-v3/`](contracts/risk-guard-v3/) (v3) · agents [`src/lib/agents/`](src/lib/agents/) · NEAR integration [`src/lib/near/`](src/lib/near/) · Hyperliquid readiness [`src/lib/hyperliquid/`](src/lib/hyperliquid/) · API [`src/app/api/swarm/route.ts`](src/app/api/swarm/route.ts) · UI [`src/app/page.tsx`](src/app/page.tsx) · harness [`scripts/verify-hackathon.ts`](scripts/verify-hackathon.ts) · setup [`scripts/testnet-setup.ts`](scripts/testnet-setup.ts) (v2), [`scripts/testnet-setup-v3.ts`](scripts/testnet-setup-v3.ts) (v3) · exchange check [`scripts/hl-acceptance.ts`](scripts/hl-acceptance.ts) · docs [`docs/`](docs/)
+**Repo map:** contracts [`contracts/risk-guard/`](contracts/risk-guard/) (v2), [`contracts/risk-guard-v3/`](contracts/risk-guard-v3/) (superseded v3) and [`contracts/risk-guard-v31/`](contracts/risk-guard-v31/) (current v3.1) · agents [`src/lib/agents/`](src/lib/agents/) · NEAR integration [`src/lib/near/`](src/lib/near/) · Hyperliquid readiness [`src/lib/hyperliquid/`](src/lib/hyperliquid/) · API [`src/app/api/swarm/route.ts`](src/app/api/swarm/route.ts) · UI [`src/app/page.tsx`](src/app/page.tsx) · harness [`scripts/verify-hackathon.ts`](scripts/verify-hackathon.ts) · setup [`scripts/testnet-setup.ts`](scripts/testnet-setup.ts) (v2), [`scripts/testnet-setup-v3.ts`](scripts/testnet-setup-v3.ts) (v3), [`scripts/testnet-setup-v31.ts`](scripts/testnet-setup-v31.ts) (v3.1) · exchange check [`scripts/hl-acceptance.ts`](scripts/hl-acceptance.ts) · docs [`docs/`](docs/)
 
 ### API
 
@@ -250,6 +261,10 @@ curl -s -X POST https://zerodelta.vercel.app/api/swarm -H 'content-type: applica
 curl -s -X POST https://zerodelta.vercel.app/api/swarm -H 'content-type: application/json' -d '{"mode":"rebalance","pair":"AUTO"}' \
   | jq '{economics, decision: .guardian.decision, pair: .resolved.pair, negotiation: [.negotiation[] | {sliceCount, observedSlippageBps, action}]}'
 ```
+
+### Rebuild the deployed binaries
+
+Install Rust 1.81.0 and its `wasm32-unknown-unknown` target, then run `bash scripts/verify-wasm.sh`. It builds all three contracts with locked dependencies, remaps Cargo's registry path to the historical panic-message prefix, and compares every byte with the recorded WASM. It never overwrites a proof binary. CI runs the same comparison.
 
 ## License
 MIT

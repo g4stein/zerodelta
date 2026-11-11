@@ -30,7 +30,7 @@ import { computeHedgePayloadHex, computeOrderMetrics, orderParamsFromPlan, sameO
 import { EXPECTED_SOLVER_MEASUREMENT, computeReportData, verifyAttestation, type AttestationVerification } from "../crypto/attestation";
 import { bytesToHex, fromBase64, hashObject, hexToBytes, sha256Hex } from "../crypto/encoding";
 import type { OrderSlice, SolverResult } from "./solverAgent";
-import { PAIRS, USDC_NEAR_ASSET, type PairId, type RebalancePlan } from "../swarm/types";
+import { PAIRS, USDC_NEAR_ASSET, USDC_ARB_ASSET, type PairId, type RebalancePlan } from "../swarm/types";
 
 export const RISK_POLICY = {
   maxNetDeltaRatio: 0.02,
@@ -215,27 +215,45 @@ function checkEnvelope(solver: SolverResult, guardian: GuardianIdentity): { pass
   }
 }
 
-function checkIntent(solver: SolverResult): { pass: boolean; detail: string } {
-  const v = verifyNep413(solver.intent.signed);
-  if (!v.valid) return { pass: false, detail: `ed25519 verification failed${v.reason ? `: ${v.reason}` : ""}` };
-  const p = solver.intent.signed.payload;
-  if (p.recipient !== INTENTS_CONTRACT) return { pass: false, detail: `recipient must be ${INTENTS_CONTRACT}` };
-  let msg: IntentMessage;
+function checkIntent(solver: SolverResult, verification: ReturnType<typeof verifyNep413>, expectedSignerId: string, now: Date): { pass: boolean; detail: string } {
   try {
-    msg = JSON.parse(p.message) as IntentMessage;
-  } catch {
-    return { pass: false, detail: "intent message is not JSON" };
+    if (!verification.valid) throw new Error("ed25519 verification failed");
+    if (verification.payloadHashHex !== solver.intent.payloadHashHex) throw new Error("INTENT_HASH_MISMATCH: signed payload differs from attested hash");
+    const p = solver.intent.signed.payload;
+    if (p.recipient !== INTENTS_CONTRACT) throw new Error(`recipient must be ${INTENTS_CONTRACT}`);
+    const msg = JSON.parse(p.message) as IntentMessage;
+    if (!msg || typeof msg !== "object") throw new Error("intent message must be an object");
+    if (msg.signer_id !== expectedSignerId || solver.signer.accountId !== expectedSignerId || msg.signer_id !== keyToImplicitAddress(solver.intent.signed.public_key)) {
+      throw new Error("SIGNER_MISMATCH: intent must use the orchestrator's signing identity");
+    }
+    const deadline = typeof msg.deadline === "string" ? Date.parse(msg.deadline) : NaN;
+    if (!Number.isFinite(deadline) || deadline <= now.getTime() || deadline > now.getTime() + 30 * 60_000) throw new Error("intent deadline must be valid, future and within 30 minutes");
+    if (!Array.isArray(msg.intents) || msg.intents.length !== 1 || msg.intents[0]?.intent !== "token_diff") throw new Error("exactly one token_diff operation is allowed");
+    const pair = PAIRS[solver.executablePlan.pair];
+    if (!pair || !Array.isArray(solver.quotes) || solver.quotes.length < 1 || solver.quotes.length > 2) throw new Error("invalid quote set");
+    const expectedDiff: Record<string, string> = {};
+    const ids = new Set<string>();
+    let usdcOut = 0n;
+    for (const q of solver.quotes) {
+      const destination = q.legId === "spot-long" ? pair.spotAssetId : q.legId === "hedge-margin" ? USDC_ARB_ASSET : null;
+      if (!destination || ids.has(q.legId) || q.originAsset !== USDC_NEAR_ASSET || q.destinationAsset !== destination) throw new Error("quote assets differ from the permitted plan");
+      ids.add(q.legId);
+      if (![q.amountIn, q.minAmountOut, q.amountOut].every(x => typeof x === "string" && /^[1-9][0-9]*$/.test(x))) throw new Error("quote amounts must be positive integers");
+      if (BigInt(q.minAmountOut) > BigInt(q.amountOut)) throw new Error("minimum receipt exceeds quote output");
+      usdcOut += BigInt(q.amountIn);
+      expectedDiff[destination] = (BigInt(expectedDiff[destination] ?? "0") + BigInt(q.minAmountOut)).toString();
+    }
+    if (!ids.has("spot-long") || (solver.executablePlan.legs.some(l => l.kind === "MARGIN") && !ids.has("hedge-margin"))) throw new Error("required quote is missing");
+    if (usdcOut > BigInt(Math.round(solver.executablePlan.treasuryUsd * 1e6))) throw new Error("intent spends more than the treasury");
+    expectedDiff[USDC_NEAR_ASSET] = `-${usdcOut}`;
+    const actual = msg.intents[0].diff;
+    if (!actual || typeof actual !== "object" || Array.isArray(actual) || Object.keys(actual).length !== Object.keys(expectedDiff).length || Object.entries(expectedDiff).some(([asset, amount]) => actual[asset] !== amount)) {
+      throw new Error("token_diff must match the complete quoted spend and minimum receipts");
+    }
+    return { pass: true, detail: "signature, attested hash, trusted signer, deadline and complete token_diff verified" };
+  } catch (err) {
+    return { pass: false, detail: err instanceof Error ? err.message : "malformed intent" };
   }
-  if (msg.signer_id !== keyToImplicitAddress(solver.intent.signed.public_key)) {
-    return { pass: false, detail: "signer_id is not the implicit account of the signing key" };
-  }
-  if (new Date(msg.deadline).getTime() <= Date.now()) return { pass: false, detail: "intent deadline has passed" };
-  const diff = msg.intents.find((i) => i.intent === "token_diff");
-  const usdcOut = solver.quotes.reduce((s, q) => s + BigInt(q.amountIn), 0n);
-  if (!diff || diff.intent !== "token_diff" || diff.diff[USDC_NEAR_ASSET] !== `-${usdcOut}`) {
-    return { pass: false, detail: "token_diff does not match quoted USDC spend" };
-  }
-  return { pass: true, detail: "tweetnacl + near-api-js both verify; recipient, signer and deadline valid" };
 }
 
 /**
@@ -317,6 +335,8 @@ function checkReplay(nonce: number, lastAcceptedNonce: number | null, now: Date)
 
 export function runGuardianAgent(input: {
   runId: string;
+  /** Identity chosen by the orchestrator, never accepted from solver metadata. */
+  expectedSignerId: string;
   solver: SolverResult;
   trustedMeasurements?: string[];
   trustedEnclaveKeys: string[];
@@ -340,12 +360,13 @@ export function runGuardianAgent(input: {
   const m = computeRiskMetrics(solver.executablePlan, solver.maxPriceImpactBps);
   const inv = evaluateRiskInvariants(m);
 
+  const intentVerification = verifyNep413(solver.intent.signed);
   const attestation = verifyAttestation(solver.attestation, {
     trustedMeasurements: input.trustedMeasurements ?? [EXPECTED_SOLVER_MEASUREMENT],
     trustedEnclaveKeys: input.trustedEnclaveKeys,
     expectedReportData: computeReportData({
       envelopeHash: solver.envelope.envelopeHash,
-      intentPayloadHash: solver.intent.payloadHashHex,
+      intentPayloadHash: intentVerification.payloadHashHex,
       planHash: hashObject(solver.executablePlan),
       hedgeOrderPayloadHex: solver.hedgeOrderPayloadHex,
     }),
@@ -355,7 +376,7 @@ export function runGuardianAgent(input: {
   const attFailures = Object.entries(attestation)
     .filter(([k, v]) => typeof v === "boolean" && k !== "valid" && !v)
     .map(([k]) => k);
-  const intentCheck = checkIntent(solver);
+  const intentCheck = checkIntent(solver, intentVerification, input.expectedSignerId, now);
   const envCheck = checkEnvelope(solver, guardian);
   const binding = checkBinding(solver, input.expected);
   const replay = checkReplay(solver.order.nonce, input.lastAcceptedNonce === undefined ? 0 : input.lastAcceptedNonce, now);
@@ -382,12 +403,12 @@ export function runGuardianAgent(input: {
     {
       id: "SLIPPAGE_CEILING",
       label: "Slippage ceiling",
-      pass: inv.slippageOk,
+      pass: inv.slippageOk && solver.quotes.every(q => q.validForAuthorization === true),
       observed: `${m.maxPriceImpactBps.toFixed(2)} bps`,
       threshold: `<= ${RISK_POLICY.maxSlippageBps} bps`,
       formula: "max over legs of (refRate - sliceRate) / refRate, refRate = live $100 quote",
       detail: solver.quotes
-        .map((q) => `${q.legId}: ${q.priceImpactBps} bps slippage, ${q.totalCostBps} bps all-in cost incl. ${q.appFeeBps} bps fee (${q.source})`)
+        .map((q) => `${q.legId}: ${q.priceImpactBps} bps slippage, ${q.totalCostBps} bps all-in cost incl. ${q.appFeeBps} bps fee (${q.source})${q.validForAuthorization === false ? "; quote validation unavailable: " + q.liveError : ""}`)
         .join("; "),
     },
     {
@@ -444,7 +465,7 @@ export function runGuardianAgent(input: {
     runId: input.runId,
     decision,
     planHash: solver.planHash,
-    intentPayloadHash: solver.intent.payloadHashHex,
+    intentPayloadHash: intentVerification.payloadHashHex,
     attestationReportHash: solver.attestation.reportHash,
     hedgeOrderPayloadHex: solver.hedgeOrderPayloadHex,
     orderNonce: solver.order.nonce,

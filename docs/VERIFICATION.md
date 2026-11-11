@@ -14,7 +14,7 @@ npm ci          # Node.js >= 20.9
 | Command | What it proves | Network | Count |
 |---|---|---|---|
 | `npm run typecheck` | Whole repo type-checks | none | — |
-| `npm test` | TypeScript unit + integration tests: NEP-413, scanner ranking and NO_TRADE, negotiation, 8 guard invariants, compromised solver, payload swap, replay, stale and concurrent nonces, intent/attestation/envelope tampering, mocked RPC failures, TS/Rust mirror vectors, Hyperliquid SDK vectors, exact sizing, the v3 and v3.1 build mirrors, parity-fixture freshness, the v2, v3 and v3.1 proof data, the acceptance classifier | none (fetch is mocked where used) | 118 tests in 5 files |
+| `npm test` | TypeScript unit + integration tests: NEP-413, scanner ranking and NO_TRADE, negotiation, 8 guard invariants, compromised solver, payload swap, replay, stale and concurrent nonces, intent/attestation/envelope tampering, mocked RPC failures, TS/Rust mirror vectors, Hyperliquid SDK vectors, exact sizing, the v3 and v3.1 build mirrors, parity-fixture freshness, the v2, v3 and v3.1 proof data, the acceptance classifier | none (fetch is mocked where used) | 144 tests in 7 files |
 | `cd contracts/risk-guard && cargo test` | The v2 contract's logic: 18 unit tests in `src/lib.rs` + 15 adversarial tests in `tests/adversarial.rs` (rounding boundaries, every order field bound by the payload, invalid symbols, u64 extremes, deposits, nonce floor) | none | 33 tests (needs Rust; 1.81 matches the deployed build) |
 | `cd contracts/risk-guard-v3 && cargo test` | The v3 contract: Hyperliquid encoding units, the official SDK vectors, 64 actions and 110 contract-level cases byte-identical to the TypeScript mirror, and an adversarial test for every rejection | none | 44 tests (Rust 1.81) |
 | `cd contracts/risk-guard-v31 && cargo test` | The v3.1 contract: size caps, rolling window, expiry, minimum order value, malformed MPC response, SDK vectors, 134 contract-level cases byte-identical to the TypeScript mirror | none | 55 tests (Rust 1.81) |
@@ -45,23 +45,23 @@ Section 11 runs the same checks for v3.1 (`testnet-proof.json`, `hl-acceptance.j
 
 Offline (also run in CI):
 
-- **v2 history unchanged:** `proofs/testnet-proof.v2.json` hashes to `99a0feb3…` (the original v2 file), and `testnet-proof.json`'s `previousDeployment` equals it.
-- **v3 code and market table:** the committed v3 WASM hashes to the recorded code hash `CJ1BEUKB…`, and the stored market table is the Hyperliquid **testnet** table (BTC 3, ETH 4, SOL 0, NEAR 54).
-- **Recorded v3 digest == TS mirror rebuilt from the recorded request.** This is the binding proof: the same legs, prices and nonce produce exactly the action, digest and commitment the contract recorded and the MPC signed.
-- **Signature recovery:** the recorded `{r, s, v}` recovers to the pinned hedge address `0xef63…2c66`; flipped `v` does not.
-- **Recorded Hyperliquid acceptance:** `hl-acceptance.json` is PASS for the real signature and FAIL (different address) for both controls; each recovered address appears in the raw response and equals local recovery.
-- **The Rust parity fixture is current.**
+- **Proof history unchanged:** `proofs/testnet-proof.v2.json` is the original v2 file; `proofs/testnet-proof.v3.json` is the preserved v3 file. The top-level `testnet-proof.json` is v3.1, its `previousDeployment` is v3, and that deployment's `previousDeployment` is v2.
+- **Committed WASM and market tables:** the harness checks the recorded code hashes and pinned Hyperliquid testnet markets for each deployment (BTC 3, ETH 4, SOL 0, NEAR 54). v3.1 also records coin-denominated caps and expiry policy.
+- **Recorded digest == fresh TypeScript rebuild:** the recorded legs, prices, nonce and, for v3.1, `expiresAfter` must reproduce the action, digest and commitment the contract recorded and MPC signed.
+- **Signature recovery:** v3.1's recorded signature recovers to `0xa74e082a55e862845d510f8d609d315afd859f5e`; the superseded v3 signature recovers to its own address `0xef63…2c66`. Corrupted signatures must recover different addresses.
+- **Recorded Hyperliquid responses:** section 11 reads `hl-acceptance.json` for v3.1; section 10 reads `proofs/hl-acceptance.v3.json`. The raw exchange responses must contain the same addresses as local signature recovery. This proves signer recovery, not an order fill.
+- **Parity fixtures are current:** Rust fixtures must match the TypeScript mirrors.
 
 Live, read-only:
 
-- Every v3 transaction re-fetched from the archival RPC with the expected status and error: create, deploy + init + delete key, approved sign, `PRICE_OUT_OF_BAND`, `NONCE_ALREADY_USED`, `Method on_mpc_signed is private`.
-- No rejected v3 transaction has a receipt to `v1.signer-prod.testnet`; the approved one has the contract-originated `sign` receipt and returned the recorded `{r, s, v}`.
-- The v3 contract has 0 access keys, the recorded code hash, policy, market table, network, MPC target and solver.
-- Attestation #0 holds the built action, digest, commitment and Hyperliquid signature.
-- **The contract's own view rebuilds the same digest today** for the recorded request (and now rejects it because the nonce is used and stale).
-- The live `derived_public_key` for (v3 contract, `zerodelta/hedge/hyperliquid`) is the pinned address.
+- Historical transactions are fetched from archival RPC and checked for the expected outcome. For v3.1 these include the size-inflation attack (`ORDER_SIZE_CAP`), over-long expiry (`EXPIRY_TOO_FAR`), replay and private-callback rejection. v3's earlier price-band rejection remains historical evidence only.
+- Rejected transactions must have no MPC signing receipt; approved transactions must contain the contract-originated signing receipt and recorded signature.
+- Each contract must have 0 access keys and match its recorded code hash, policy, market table, network, MPC target and solver.
+- Attestation #0 must match the recorded built action, digest and signature.
+- The contract view rebuilds the recorded digest today, even though the historical nonce is now used and stale.
+- The live `derived_public_key` for each contract and `zerodelta/hedge/hyperliquid` must match that deployment's pinned hedge address.
 
-The harness never posts to Hyperliquid; `npm run hl:acceptance -- --live` does that separately.
+The harness never posts to Hyperliquid. `npm run hl:acceptance` also runs offline by default; only `npm run hl:acceptance -- --live` posts the recorded requests. Duplicate nonces are reported as `SPENT`, not a new pass.
 
 ## 4. The committed report
 
@@ -74,4 +74,10 @@ A report can't name the commit that contains it, so a committed report always de
 
 ## 5. CI
 
-[`.github/workflows/verify.yml`](../.github/workflows/verify.yml) runs on every push and pull request: `npm ci`, typecheck, tests, build, offline verification (uploads `verify-report-offline-<sha>` as an artifact), and the v2 and v3 Rust tests, with checks that both deployed WASM files and the original v2 proof file are byte-unchanged. Live verification is a separate manual job (`workflow_dispatch` with `live = true`) because public RPC availability is outside the repo's control.
+[`.github/workflows/verify.yml`](../.github/workflows/verify.yml) runs on every push and pull request: `npm ci`, typecheck, tests, build, offline verification (uploads `verify-report-offline-<sha>` as an artifact), and the v2, v3 and v3.1 Rust tests, with checks that all three deployed WASM files and the original v2 and v3 proof files are byte-unchanged. Live verification is a separate manual job (`workflow_dispatch` with `live = true`) because public RPC availability is outside the repo's control.
+
+## 6. Source-to-deployment reproducibility
+
+`bash scripts/verify-wasm.sh` builds v2, v3 and v3.1 with Rust 1.81.0, the WASM target and each Cargo.lock. The original binaries embed `/root/.cache/cargo` in dependency panic locations; `--remap-path-prefix` makes that diagnostic prefix reproducible from any Cargo home. `cmp` checks complete binary equality. No committed WASM is overwritten. CI executes this in addition to the fixed historical hash checks.
+
+The source hardening regressions live in `tests/intentBoundary.test.ts`; they cover substituted payloads, complete token-diff validation, the orchestrator's expected signer, deadlines, malformed messages, missing reference/slice quotes, invalid numeric values and stale timestamps. `tests/preview.test.ts` covers the current-contract judge scenarios.

@@ -34,6 +34,7 @@ import type { LiveTelemetry as BaseTelemetry } from "@/lib/near/rpcClient";
 import type { OnchainProofStatus, TestnetProof } from "@/lib/near/riskGuardContract";
 import type { V3OnchainStatus } from "@/lib/near/riskGuardV3";
 import { V3ExecutableProof } from "./V3ExecutableProof";
+import { V31Preview } from "./V31Preview";
 import { V2_PROOF_JSON, V31_PROOF_JSON } from "@/lib/near/proofFile";
 import { computeOrderMetrics, type OrderParams } from "@/lib/near/orderCommitment";
 
@@ -124,8 +125,11 @@ export default function Dashboard() {
   return (
     <main className="mx-auto max-w-[1500px] px-4 pb-16 pt-6 sm:px-6" aria-label="ZeroDelta dashboard">
       <Header />
-      <TelemetryBar telemetry={telemetry} loading={telemetryLoading} onRefresh={() => void loadTelemetry()} />
+      <V31Preview />
       <V3ExecutableProof onchainV3={telemetry?.onchainV3} />
+      <details className="mt-6 rounded-xl border border-slate-800 p-4"><summary className="cursor-pointer text-sm text-slate-300">Network telemetry and historical v2 guard</summary>
+        <TelemetryBar telemetry={telemetry} loading={telemetryLoading} onRefresh={() => void loadTelemetry()} />
+      </details>
 
       <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
         <div className="min-w-0 space-y-6">
@@ -194,7 +198,7 @@ function Header() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-3xl">
             <h2 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">
-              Autonomous strategies. <span className="text-emerald-300">Contract-enforced boundaries.</span>
+              Agents propose. <span className="text-emerald-300">The contract controls signing.</span>
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-400">
               Agents discover and construct opportunities. A deterministic guard checks the proposal. The locked NEAR contract independently verifies raw order

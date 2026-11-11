@@ -257,7 +257,7 @@ async function main() {
   );
   const offA = await runSwarm({ mode: "rebalance", pair: "AUTO", treasuryUsd: 50_000, sliceCount: "auto" }, { live: false });
   check("Offline hedged plan approved (8 invariants)", offA.guardian.decision === "APPROVED" && offA.guardian.checks.length === 8, `${offA.resolved.pair}: net delta ${(offA.guardian.metrics.netDeltaRatio * 100).toFixed(2)}%, leverage ${offA.guardian.metrics.leverage.toFixed(2)}x`);
-  const replay = runGuardianAgent({ runId: "replay", solver: offA.solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex] });
+  const replay = runGuardianAgent({ runId: "replay", expectedSignerId: offA.solver.signer.accountId, solver: offA.solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex] });
   check("Offline replay of the approved order rejected", replay.decision === "REJECTED" && replay.violations.join() === "REPLAY_AND_MPC_GATE", replay.checks.find((c) => c.id === "REPLAY_AND_MPC_GATE")!.detail ?? "");
   const offB = await runSwarm({ mode: "rogue", pair: "NEAR", treasuryUsd: 50_000, sliceCount: 8 }, { live: false });
   check("Offline rogue 10x long rejected", offB.guardian.decision === "REJECTED" && offB.guardian.violations.includes("DELTA_NEUTRALITY") && offB.guardian.violations.includes("LEVERAGE_CEILING"), `violations: ${offB.guardian.violations.join(", ")}`);
