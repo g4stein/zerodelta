@@ -59,9 +59,13 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             contracts/risk-guard/target
-          key: cargo-${{ hashFiles('contracts/risk-guard/Cargo.lock') }}
+            contracts/risk-guard-v3/target
+          key: cargo-${{ hashFiles('contracts/risk-guard/Cargo.lock', 'contracts/risk-guard-v3/Cargo.lock') }}
       - name: cargo test (unit + adversarial)
         working-directory: contracts/risk-guard
+        run: cargo test --locked
+      - name: cargo test v3 (SDK vectors + TS parity)
+        working-directory: contracts/risk-guard-v3
         run: cargo test --locked
       - name: Deployed WASM is unchanged
         run: |

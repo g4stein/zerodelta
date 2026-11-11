@@ -19,6 +19,8 @@
     "contract:build": "cd contracts/risk-guard && cargo +1.81.0 build --release --target wasm32-unknown-unknown && cp target/wasm32-unknown-unknown/release/zerodelta_risk_guard.wasm res/",
     "verify:offline": "ZERODELTA_OFFLINE=1 npx tsx scripts/verify-hackathon.ts",
     "test:contract": "cd contracts/risk-guard && cargo test",
+    "test:contract:v3": "cd contracts/risk-guard-v3 && cargo test",
+    "hl:vectors": "npx tsx scripts/hl-vectors.ts",
     "verify:report": "VERIFY_REPORT_PATH=verify-report.json npx tsx scripts/verify-hackathon.ts"
   },
   "dependencies": {

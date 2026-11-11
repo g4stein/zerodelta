@@ -12,6 +12,7 @@ npm-debug.log*
 # NEAR testnet private keys (never commit)
 .testnet-keys*.json
 contracts/risk-guard/target/
+contracts/risk-guard-v3/target/
 verify-report.local.json
 verify-report.offline.json
 verify-report.live.json
