@@ -70,6 +70,10 @@ jobs:
       - name: Deployed WASM is unchanged
         run: |
           echo "51ada920b44f5653e8a9293ebac08fbeee3f2d280d77efacfede33b68ca71ce7  contracts/risk-guard/res/zerodelta_risk_guard.wasm" | sha256sum -c -
+      - name: Deployed v3 WASM and v2 proof history are unchanged
+        run: |
+          echo "02e49d42c9d4152196dbd054403f546839c14c8801174bbe6249eedd265999fb  contracts/risk-guard-v3/res/zerodelta_risk_guard_v3.wasm" | sha256sum -c -
+          echo "99a0feb37566af1578148481191cad69511b78f2bcac552f729cabb09b138581  proofs/testnet-proof.v2.json" | sha256sum -c -
 
   live:
     name: live verification (optional)

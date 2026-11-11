@@ -16,6 +16,12 @@
  *      contract-issued MPC sign receipt, and every transaction in
  *      testnet-proof.json re-checked with EXPERIMENTAL_tx_status (archival RPC),
  *      plus offline MPC signature recovery
+ *  10. Risk Guard v3 (testnet): v2 history preserved, v3 wasm/code hash, testnet market
+ *      table, recorded digest == TS mirror, MPC signature recovers to the hedge address,
+ *      recorded Hyperliquid acceptance, parity fixture current (all offline); then every
+ *      v3 tx re-checked, no MPC receipt on rejected txs, locked contract config,
+ *      attestation #0, on-chain digest == TS digest, live derived key (live, read-only).
+ *      Nothing is posted to Hyperliquid by this harness; see `npm run hl:acceptance`.
  *
  * Result levels: PASS, WARN (live source unavailable, labelled fallback used),
  * SKIP (offline mode), FAIL. Exit code is 1 if anything FAILs, else 0.
@@ -67,6 +73,17 @@ import { evaluateRiskInvariants, GUARDIAN_NEAR_ACCOUNT, HEDGE_DERIVATION_PATH, r
 import { runSwarm, verifyAuditChain } from "../src/lib/swarm/orchestrator";
 import { USDC_NEAR_ASSET } from "../src/lib/swarm/types";
 import { bytesToHex } from "../src/lib/crypto/encoding";
+import { V3_PROOF_JSON } from "../src/lib/near/proofFile";
+import { getAccessKeyCount, type ProofTx } from "../src/lib/near/riskGuardContract";
+import { nearRpc } from "../src/lib/near/rpcClient";
+import { HYPERLIQUID_PERPS_TESTNET } from "../src/lib/hyperliquid/exchangeSigning";
+import { buildV3Hedge, type V3Market } from "../src/lib/hyperliquid/v3Hedge";
+import { recoverAddress } from "./testnet-setup-v3";
+import { buildHlVectors, HL_VECTORS_PATH } from "./hl-vectors";
+
+/** Key-order-independent JSON, for comparing objects that were re-serialised. */
+const canonicalJson = (o: unknown): string =>
+  JSON.stringify(o, (_k, v) => (v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k]])) : v));
 
 type Level = "PASS" | "WARN" | "SKIP" | "FAIL";
 interface Result {
@@ -374,6 +391,109 @@ async function main() {
     check("Contract check_order_params: replay, rogue math and payload swap", replayOnly && rogueMath && swap && mirror, `approved order now -> ${a.violations?.[0]?.slice(0, 40)}; rogue -> ${b.violations?.map((v) => v.split(":")[0]).join("+")}; swap -> ${c.violations?.map((v) => v.split(":")[0]).join("+")}; contract compute_payload == TS keccak: ${mirror}`);
   });
 
+  // 10 -----------------------------------------------------------------------
+  heading("10. Risk Guard v3: executable Hyperliquid signature (testnet)");
+  const v3 = V3_PROOF_JSON as any;
+  if (!v3) {
+    record("testnet-proof.json has a v3 deployment", "FAIL", "no v3 section");
+  } else {
+    const G3: string = v3.contract.accountId;
+    const v2Bytes = readFileSync(v3.previousDeploymentFile.path);
+    const v2Sha = Buffer.from(sha256Bytes(new Uint8Array(v2Bytes))).toString("hex");
+    check(
+      "v2 proof preserved unchanged (byte-identical file + previousDeployment)",
+      v2Sha === "99a0feb37566af1578148481191cad69511b78f2bcac552f729cabb09b138581" && v3.previousDeploymentFile.sha256 === v2Sha && canonicalJson(v3.previousDeployment) === canonicalJson(JSON.parse(v2Bytes.toString("utf8"))),
+      `${v3.previousDeploymentFile.path} sha256 ${v2Sha.slice(0, 16)}…; previousDeployment == that file`,
+    );
+    const wasm3 = readFileSync(v3.contract.wasmPath);
+    const wasm3B58 = toBase58(sha256Bytes(new Uint8Array(wasm3)));
+    check("Committed v3 WASM hashes to the recorded code hash", wasm3B58 === v3.contract.codeHash && wasm3.length === v3.contract.wasmBytes, `sha256(${v3.contract.wasmPath}) = ${wasm3B58}; ${wasm3.length} bytes`);
+    check(
+      "v3 market table is the Hyperliquid TESTNET table (not mainnet indices)",
+      JSON.stringify(v3.contract.markets) === JSON.stringify(Object.entries(HYPERLIQUID_PERPS_TESTNET).map(([symbol, m]) => ({ symbol, asset: m.asset, sz_decimals: m.szDecimals }))) && v3.contract.hlNetwork === "testnet",
+      `${v3.contract.markets.map((m: V3Market) => `${m.symbol}=${m.asset}`).join(" ")} fetched ${v3.contract.marketsFetchedAt}`,
+    );
+    const req = v3.approvedHedge.args.request;
+    const rebuilt = buildV3Hedge(G3, "testnet", v3.approvedHedge.market, req.order, BigInt(req.limit_px_e8), BigInt(req.reference_px_e8), v3.contract.policy);
+    check(
+      "Recorded v3 digest == TS mirror rebuilt from the recorded request (offline)",
+      rebuilt.violations.length === 0 && rebuilt.digestHex === v3.approvedHedge.digestHex && rebuilt.commitmentHex === v3.approvedHedge.commitmentHex && JSON.stringify(rebuilt.action) === JSON.stringify(v3.approvedHedge.exchangeRequest.action),
+      `${req.order.asset_symbol} IOC sell ${rebuilt.action?.orders[0].s} @ ${rebuilt.action?.orders[0].p} on market ${v3.approvedHedge.market.asset}; digest ${rebuilt.digestHex.slice(0, 16)}…`,
+    );
+    const sig3 = v3.approvedHedge.exchangeRequest.signature;
+    const rec3 = recoverAddress(v3.approvedHedge.digestHex, sig3);
+    const recFlip = recoverAddress(v3.approvedHedge.digestHex, { ...sig3, v: sig3.v === 27 ? 28 : 27 });
+    check("v3 MPC signature recovers to the pinned hedge address; flipped v does not (offline)", rec3 === v3.hedgeKey.evmAddress.toLowerCase() && recFlip !== rec3, `${v3.hedgeKey.path} -> ${rec3}`);
+    const acc = JSON.parse(readFileSync("hl-acceptance.json", "utf8"));
+    const accOk =
+      acc.verdict === "PASS" &&
+      acc.expectedAddress === v3.hedgeKey.evmAddress.toLowerCase() &&
+      acc.digestHex === v3.approvedHedge.digestHex &&
+      acc.results.map((x: { classification: string }) => x.classification).join() === "PASS,FAIL,FAIL" &&
+      acc.results.every((x: { recoveredAddress: string; request: { signature: { r: string; s: string; v: number } }; rawResponse: string }) => x.recoveredAddress === recoverAddress(v3.approvedHedge.digestHex, x.request.signature) && x.rawResponse.includes(x.recoveredAddress));
+    check(
+      "Hyperliquid testnet /exchange recovered the hedge address from the MPC signature (recorded)",
+      accOk,
+      `${acc.ranAt}: real -> ${acc.results[0]?.recoveredAddress}; v flipped -> ${acc.results[1]?.recoveredAddress}; s bit flipped -> ${acc.results[2]?.recoveredAddress}`,
+    );
+    const fixture = JSON.parse(readFileSync(HL_VECTORS_PATH, "utf8"));
+    check("Rust parity fixture is current (regenerated from the TS modules)", canonicalJson(fixture) === canonicalJson(JSON.parse(JSON.stringify(buildHlVectors()))), `${fixture.orders.length} actions, ${fixture.hedges.length} contract-level cases`);
+
+    const v3Tx = new Map<string, TxVerification>();
+    for (const tx of v3.transactions as ProofTx[]) {
+      await live(`v3: ${tx.label}`, async () => {
+        const v = await verifyProofTx(tx);
+        v3Tx.set(tx.kind, v);
+        check(`v3: ${tx.label}`, v.matchesExpectation, `${v.onchainStatus} · ${tx.signerId} -> ${tx.receiverId}.${tx.methodName} · ${v.detail} · ${tx.explorerUrl}`);
+      });
+    }
+    await live("v3: no rejected transaction produced an MPC receipt; the approved one did", async () => {
+      const rejected = (v3.transactions as ProofTx[]).filter((t) => t.expect === "failure");
+      const clean = rejected.every((t) => v3Tx.get(t.kind)?.found && !v3Tx.get(t.kind)!.receipts.some((rc) => rc.receiverId === MPC_CONTRACT));
+      const ap = v3Tx.get("APPROVED_EXECUTABLE_HEDGE_SIGNED");
+      const ret = ap?.returnValue ? JSON.parse(ap.returnValue) : null;
+      const signed = Boolean(ap?.gateReceipt) && ap!.gateReceipt!.predecessorId === G3 && ret?.r === sig3.r && ret?.s === sig3.s && ret?.v === sig3.v;
+      check("v3: no rejected transaction produced an MPC receipt; the approved one did", clean && signed, `${rejected.length} rejected txs without MPC receipts; approved tx returned the recorded {r, s, v}: ${signed}`);
+    });
+    await live("v3: contract is locked; code, policy, markets and MPC target match", async () => {
+      const [cfg, acct, keys] = await Promise.all([
+        viewFunction<any>("testnet", G3, "get_config"),
+        nearRpc<{ code_hash: string }>("testnet", "query", { request_type: "view_account", finality: "final", account_id: G3 }),
+        getAccessKeyCount(G3),
+      ]);
+      const c = cfg.ok ? cfg.value : null;
+      const ok =
+        keys === 0 &&
+        acct.ok &&
+        acct.result?.code_hash === v3.contract.codeHash &&
+        c &&
+        JSON.stringify(c.policy) === JSON.stringify(v3.contract.policy) &&
+        JSON.stringify(c.markets) === JSON.stringify(v3.contract.markets) &&
+        c.hl_network === "testnet" &&
+        c.mpc_signer_contract === MPC_CONTRACT &&
+        c.mpc_path === v3.hedgeKey.path &&
+        c.solver === v3.accounts.solver &&
+        c.last_nonce >= req.order.nonce;
+      check("v3: contract is locked; code, policy, markets and MPC target match", Boolean(ok), `${keys} access keys; code ${acct.ok ? acct.result?.code_hash : "?"}; last_nonce ${c?.last_nonce}; attestations ${c?.attestation_count}`);
+    });
+    await live("v3: attestation #0 holds the built action, digest and Hyperliquid signature", async () => {
+      const r = await viewFunction<any>("testnet", G3, "get_attestation", { index: 0 });
+      const a = r.ok ? r.value : null;
+      const ok = a && a.mpc_status === "Signed" && a.digest_hex === v3.approvedHedge.digestHex && a.commitment_hex === v3.approvedHedge.commitmentHex && a.action_json === JSON.stringify(v3.approvedHedge.exchangeRequest.action) && JSON.stringify(a.hl_signature) === JSON.stringify(sig3);
+      check("v3: attestation #0 holds the built action, digest and Hyperliquid signature", Boolean(ok), a ? `${a.mpc_status}; v = ${a.hl_signature?.v}; ${a.action_json.slice(0, 60)}…` : r.ok ? "missing" : r.error);
+    });
+    await live("v3: contract view rebuilds the same digest today (and rejects the reused nonce)", async () => {
+      const r = await viewFunction<any>("testnet", G3, "preview_executable_hedge", { request: req });
+      const e = r.ok ? r.value : null;
+      const ok = e && e.digest_hex === rebuilt.digestHex && e.commitment_hex === rebuilt.commitmentHex && e.approved === false && e.violations.some((x: string) => x.startsWith("NONCE_ALREADY_USED"));
+      check("v3: contract view rebuilds the same digest today (and rejects the reused nonce)", Boolean(ok), e ? `on-chain digest ${e.digest_hex.slice(0, 16)}… == TS ${rebuilt.digestHex.slice(0, 16)}…; now ${e.violations.map((x: string) => x.split(":")[0]).join("+")}` : r.ok ? "no result" : r.error);
+    });
+    await live("v3: live derived hedge key matches the pinned address", async () => {
+      const d = await getMpcDerivedAccount(v3.hedgeKey.path, G3);
+      check("v3: live derived hedge key matches the pinned address", d.live && d.derivedPublicKey === v3.hedgeKey.derivedPublicKey && d.evmAddress?.toLowerCase() === v3.hedgeKey.evmAddress.toLowerCase(), `${G3} / ${v3.hedgeKey.path} -> ${d.evmAddress}`);
+    });
+  }
+
   // Summary --------------------------------------------------------------------
   const count = (l: Level) => results.filter((r) => r.level === l).length;
   const failed = count("FAIL");
@@ -417,6 +537,15 @@ async function main() {
       codeHash: TESTNET_PROOF.contract.codeHash,
       transactions: TESTNET_PROOF.transactions.map((t) => ({ kind: t.kind, hash: t.hash, expect: t.expect, explorerUrl: t.explorerUrl })),
     },
+    deploymentV3: V3_PROOF_JSON
+      ? {
+          network: "testnet",
+          contract: (V3_PROOF_JSON as any).contract.accountId,
+          codeHash: (V3_PROOF_JSON as any).contract.codeHash,
+          hedgeAddress: (V3_PROOF_JSON as any).hedgeKey.evmAddress,
+          transactions: ((V3_PROOF_JSON as any).transactions as ProofTx[]).map((t) => ({ kind: t.kind, hash: t.hash, expect: t.expect, explorerUrl: t.explorerUrl })),
+        }
+      : null,
     results,
   };
   writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2) + "\n");
