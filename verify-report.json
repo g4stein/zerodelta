@@ -1,29 +1,29 @@
 {
   "project": "ZeroDelta",
   "schema": 2,
-  "generatedAt": "2026-11-09T21:25:37.613Z",
+  "generatedAt": "2026-11-11T15:31:43.053Z",
   "overall": "PASS",
   "mode": "live",
   "source": {
-    "commit": "b33eca94ffa8c830fa5ec7c00696d44b41890baa",
-    "branch": "fix/post-merge-audit",
-    "dirty": true,
-    "uncommittedDiffSha256": "e3b9039284146b77a1460150a8595d1a97a470dfb09af5bb4ae398d4eb77ea59",
+    "commit": "e94572263de8eb61128c310680ff2f76ef47054b",
+    "branch": "v3-executable-signing",
+    "dirty": false,
+    "uncommittedDiffSha256": null,
     "note": "`commit` is the commit the run started from. A report committed to the repo therefore names its parent commit (dirty = true). For a report bound to one exact commit, use the CI artifact verify-report-offline-<sha>."
   },
   "environment": {
     "node": "v22.23.4",
     "platform": "linux-x64",
     "ci": false,
-    "rust": "rustc 1.81.0 (eeb90cda1 2024-09-04)"
+    "rust": "rustc 1.92.0 (ded5c06cf 2025-12-08)"
   },
   "totals": {
-    "checks": 57,
-    "PASS": 57,
+    "checks": 75,
+    "PASS": 75,
     "WARN": 0,
     "SKIP": 0,
     "FAIL": 0,
-    "durationSec": 7.8
+    "durationSec": 9.2
   },
   "bySection": {
     "1. NEP-413 Ed25519 intent cryptography": {
@@ -79,6 +79,12 @@
       "WARN": 0,
       "SKIP": 0,
       "FAIL": 0
+    },
+    "10. Risk Guard v3: executable Hyperliquid signature (testnet)": {
+      "PASS": 18,
+      "WARN": 0,
+      "SKIP": 0,
+      "FAIL": 0
     }
   },
   "deployment": {
@@ -118,30 +124,74 @@
       }
     ]
   },
+  "deploymentV3": {
+    "network": "testnet",
+    "contract": "zerodelta-guard-v3-a9c75f.testnet",
+    "codeHash": "CJ1BEUKBhtU6E744SQTmhcDuXw4SchTeqoCg8YkHPAA",
+    "hedgeAddress": "0xef639b571185dc6ee0e4680de4e8dd81e7e02c66",
+    "transactions": [
+      {
+        "kind": "CREATE_V3_ACCOUNT",
+        "hash": "GrYo4p8tMcJc5Un6LvTT6psJ5bbKC8dKiYZ6WTcCEzKi",
+        "expect": "success",
+        "explorerUrl": "https://testnet.nearblocks.io/txns/GrYo4p8tMcJc5Un6LvTT6psJ5bbKC8dKiYZ6WTcCEzKi"
+      },
+      {
+        "kind": "DEPLOY_INIT_AND_LOCK",
+        "hash": "3ZazKuBgvi3mQaWout48RvujJ2cuA5FdhasvjqxUm5Vh",
+        "expect": "success",
+        "explorerUrl": "https://testnet.nearblocks.io/txns/3ZazKuBgvi3mQaWout48RvujJ2cuA5FdhasvjqxUm5Vh"
+      },
+      {
+        "kind": "APPROVED_EXECUTABLE_HEDGE_SIGNED",
+        "hash": "2SAhjj5Xju19NA3t9KsjTGAoQp5RWyhTbwEpqC6wUdkF",
+        "expect": "success",
+        "explorerUrl": "https://testnet.nearblocks.io/txns/2SAhjj5Xju19NA3t9KsjTGAoQp5RWyhTbwEpqC6wUdkF"
+      },
+      {
+        "kind": "PRICE_OUT_OF_BAND_REJECTED",
+        "hash": "EznaA4oyAhMxADoHTEToFEurf8JZKg3vs65tGYNfKbEq",
+        "expect": "failure",
+        "explorerUrl": "https://testnet.nearblocks.io/txns/EznaA4oyAhMxADoHTEToFEurf8JZKg3vs65tGYNfKbEq"
+      },
+      {
+        "kind": "REPLAY_REJECTED",
+        "hash": "CRCZghG2vHL3xrSp27XuWM41SmtR6pNsKjE8FoYLLyjQ",
+        "expect": "failure",
+        "explorerUrl": "https://testnet.nearblocks.io/txns/CRCZghG2vHL3xrSp27XuWM41SmtR6pNsKjE8FoYLLyjQ"
+      },
+      {
+        "kind": "PRIVATE_CALLBACK_REJECTED",
+        "hash": "8pL5kKgXZkry3WVXeA2ai4Ys6nzj5BgQDUbt5CBieoSh",
+        "expect": "failure",
+        "explorerUrl": "https://testnet.nearblocks.io/txns/8pL5kKgXZkry3WVXeA2ai4Ys6nzj5BgQDUbt5CBieoSh"
+      }
+    ]
+  },
   "results": [
     {
       "section": "1. NEP-413 Ed25519 intent cryptography",
       "name": "Ephemeral ed25519 key + implicit account",
       "level": "PASS",
-      "detail": "ed25519:Dj75UieftSDH3LTNZxmNX1seDieuhPd15ug337ZRYt5G → bd1582349a10b15024595352ca48e9b14534b1c762edda92d1b735452ce7d9fb"
+      "detail": "ed25519:Cz8SrxBzSPF5Te9C86QjnR6adN4WddsTZAqyUBavGkxA → b21314d641740473e07dc87ff9a9e1b5a6f9c0b2066567c86af51b546f1addd3"
     },
     {
       "section": "1. NEP-413 Ed25519 intent cryptography",
       "name": "32-byte random nonce",
       "level": "PASS",
-      "detail": "b2a1c103ad99969b4e5fde4f91f20a80fb731dc3e6043ca8b453fa7d00569d4e"
+      "detail": "765da9f1c9d73f53e260febeee764aa35c499eca0e67d55ae95a7d0cf1f94438"
     },
     {
       "section": "1. NEP-413 Ed25519 intent cryptography",
       "name": "Signature verifies (tweetnacl)",
       "level": "PASS",
-      "detail": "sig 92aa070e3e938d34a612ba1aa544d64b…"
+      "detail": "sig 8fac3350927707d3661ed3fe9fe5aece…"
     },
     {
       "section": "1. NEP-413 Ed25519 intent cryptography",
       "name": "Signature verifies (near-api-js PublicKey.verify)",
       "level": "PASS",
-      "detail": "sha256(borsh) c0e27b1e4f5e2f3282a66e278fc327f0…"
+      "detail": "sha256(borsh) 226a9c15f22626c6cfa337e87b9f394b…"
     },
     {
       "section": "1. NEP-413 Ed25519 intent cryptography",
@@ -159,19 +209,19 @@
       "section": "2. Live NEAR JSON-RPC",
       "name": "testnet status + gas price",
       "level": "PASS",
-      "detail": "block #276975120 54tvXGSNtCEyCVCBkCnXJBJFWKDSKCwsBZa3jCNWcbUv · gas 100000000 · https://test.rpc.fastnear.com 227ms"
+      "detail": "block #277234245 E5M7YVoyd6p5E8zFzW7qNSyetPSZavdKdTKz4V8MzcR1 · gas 100000000 · https://test.rpc.fastnear.com 175ms"
     },
     {
       "section": "2. Live NEAR JSON-RPC",
       "name": "mainnet status + gas price",
       "level": "PASS",
-      "detail": "block #223822387 6TryiUC8PBvZM7trpoiBWxscD7i72sEZPHMoLJfUuUrJ · gas 100000000 · https://free.rpc.fastnear.com 110ms"
+      "detail": "block #224083863 D57kUg1X7o2vXVUs54SJHnW44nvE3Xt4joVNeMNqY8VA · gas 100000000 · https://free.rpc.fastnear.com 73ms"
     },
     {
       "section": "2. Live NEAR JSON-RPC",
       "name": "view_account intents.near (mainnet)",
       "level": "PASS",
-      "detail": "contract code BtA1BEFNS619KkvXFsgcpQ21Tb5yMm32aaUkn7xNothk, 13,518,326,423 bytes storage, block #223822385"
+      "detail": "contract code BtA1BEFNS619KkvXFsgcpQ21Tb5yMm32aaUkn7xNothk, 13,581,783,497 bytes storage, block #224083861"
     },
     {
       "section": "2. Live NEAR JSON-RPC",
@@ -183,7 +233,7 @@
       "section": "3. NEAR Chain Signatures MPC (v1.signer-prod.testnet)",
       "name": "MPC contract version + root public key",
       "level": "PASS",
-      "detail": "v3.18.0, 4 domains, root secp256k1:4NfTiv3UsGahebgTaHyD…"
+      "detail": "v3.18.0, 8 domains, root secp256k1:4NfTiv3UsGahebgTaHyD…"
     },
     {
       "section": "3. NEAR Chain Signatures MPC (v1.signer-prod.testnet)",
@@ -195,7 +245,7 @@
       "section": "4. Live intents.near Verifier (simulate_intents on mainnet)",
       "name": "Signed NEP-413 auth probe executes",
       "level": "PASS",
-      "detail": "intent_hash DywaaGLWJ2NBg9kbZsZiN1oTBLc289PThFGokanSMs78 (salt 252812b3)"
+      "detail": "intent_hash 3KM9aWTDx3TH3C9ainZXALn4oqGR2YntcjL6XG9pVXHM (salt 252812b3)"
     },
     {
       "section": "4. Live intents.near Verifier (simulate_intents on mainnet)",
@@ -213,19 +263,19 @@
       "section": "5. Live NEAR Intents 1Click API",
       "name": "GET /v0/tokens",
       "level": "PASS",
-      "detail": "216 assets across 39 chains (abs, adi, aleo, aptos, arb, avax, base, bch…) in 286ms"
+      "detail": "229 assets across 39 chains (abs, adi, aleo, aptos, arb, avax, base, bch…) in 256ms"
     },
     {
       "section": "5. Live NEAR Intents 1Click API",
       "name": "POST /v0/quote (dry)",
       "level": "PASS",
-      "detail": "1000 USDC → 275.94648730070222253453 wNEAR ($996.17), quote sig ed25519:33y7rTN4KZQiizqX…"
+      "detail": "1000 USDC → 268.408240784626742261103632 wNEAR ($993.11), quote sig ed25519:5n7PLMjoKZt7vaom…"
     },
     {
       "section": "6. Live perp funding feed (Hyperliquid)",
       "name": "metaAndAssetCtxs funding",
       "level": "PASS",
-      "detail": "BTC 10.95% APR, ETH 2.40% APR, SOL -10.22% APR, NEAR 10.95% APR"
+      "detail": "BTC 8.23% APR, ETH 10.95% APR, SOL 10.95% APR, NEAR 16.14% APR"
     },
     {
       "section": "7. Deterministic risk policy, contract mirror and adversarial cases (offline)",
@@ -261,7 +311,7 @@
       "section": "7. Deterministic risk policy, contract mirror and adversarial cases (offline)",
       "name": "Offline replay of the approved order rejected",
       "level": "PASS",
-      "detail": "NONCE_ALREADY_USED: 1794259532335000 was already approved by this guard"
+      "detail": "NONCE_ALREADY_USED: 1794411095931000 was already approved by this guard"
     },
     {
       "section": "7. Deterministic risk policy, contract mirror and adversarial cases (offline)",
@@ -303,25 +353,25 @@
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Agent 1 recommendation is consistent with the live matrix",
       "level": "PASS",
-      "detail": "TRADE: BTC earns an estimated 5.531% net carry (3.688% on the whole treasury). Estimate, not a guarantee: funding change"
+      "detail": "TRADE: ETH earns an estimated 2.098% net carry (1.399% on the whole treasury). Estimate, not a guarantee: funding change"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Agent 1 ranked all 4 markets by net-of-cost carry",
       "level": "PASS",
-      "detail": "#1 BTC 10.95% gross -> 5.531% net | #2 NEAR 10.95% gross -> 1.978% net | #3 ETH 2.399% gross -> -2.774% net | #4 SOL -10.222% gross -> -13.843% net (4/4 live cost probes)"
+      "detail": "#1 ETH 10.95% gross -> 2.098% net | #2 SOL 10.95% gross -> 0.983% net | #3 NEAR 16.142% gross -> -0.541% net | #4 BTC 8.234% gross -> -0.92% net (4/4 live cost probes)"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Agent 1/2 slice negotiation converged",
       "level": "PASS",
-      "detail": "1sl 0.84bps ACCEPTED"
+      "detail": "1sl 2.42bps ACCEPTED"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "Autonomous delta-neutral rebalance ($50,000, AUTO pair, auto slices)",
       "level": "PASS",
-      "detail": "APPROVED BTC; net delta 0.00%, leverage 1.33x, slippage 0.84 bps, 1 slices"
+      "detail": "APPROVED ETH; net delta 0.00%, leverage 1.33x, slippage 2.42 bps, 1 slices"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
@@ -333,19 +383,19 @@
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  MPC request is routed through the Risk Guard contract",
       "level": "PASS",
-      "detail": "zerodelta-guard-fb604f.testnet.record_rebalance -> v1.signer-prod.testnet.sign(b4de5015ead107c7…) -> hedge key 0x9d5A25917b23C1CF60fD5c7695621FD3Dca754dD"
+      "detail": "zerodelta-guard-fb604f.testnet.record_rebalance -> v1.signer-prod.testnet.sign(c9c42976aaf06556…) -> hedge key 0x9d5A25917b23C1CF60fD5c7695621FD3Dca754dD"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Approval proof + audit chain verify",
       "level": "PASS",
-      "detail": "decision 680f4fb4d01532fe…, audit root 905684a508e622bf…"
+      "detail": "decision ca9cada7a0c0057c…, audit root 7bf54b4196f39eb6…"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Deployed contract recomputes the same order and approves it",
       "level": "PASS",
-      "detail": "check_order_params: 0 bps / 134 (x100), payload match true, nonce fresh true"
+      "detail": "check_order_params: 0 bps / 133 (x100), payload match true, nonce fresh true"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
@@ -357,13 +407,13 @@
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Rejection proof signature verifies",
       "level": "PASS",
-      "detail": "guardian 7d4405a073dad4c7…"
+      "detail": "guardian 249a2a00d4244274…"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Deployed contract also rejects it on its own math",
       "level": "PASS",
-      "detail": "zerodelta-guard-fb604f.testnet: DELTA_NEUTRALITY: 99945 bps > 200 bps; LEVERAGE_CEILING: 1000 > 300 (x100)"
+      "detail": "zerodelta-guard-fb604f.testnet: DELTA_NEUTRALITY: 99930 bps > 200 bps; LEVERAGE_CEILING: 1000 > 300 (x100)"
     },
     {
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
@@ -375,7 +425,7 @@
       "section": "8. Full live swarm (ranking, negotiation, dry-run settlement, contract cross-check)",
       "name": "  Deployed contract flags PAYLOAD_COMMITMENT_MISMATCH",
       "level": "PASS",
-      "detail": "PAYLOAD_COMMITMENT_MISMATCH: expected 08a1f5bb98045564f63574"
+      "detail": "PAYLOAD_COMMITMENT_MISMATCH: expected 90e3d872720b03f88c692b"
     },
     {
       "section": "9. On-chain NEAR testnet proof (locked Risk Guard v2 + real transactions)",
@@ -460,6 +510,114 @@
       "name": "Contract check_order_params: replay, rogue math and payload swap",
       "level": "PASS",
       "detail": "approved order now -> NONCE_ALREADY_USED: nonce 17942522259130; rogue -> DELTA_NEUTRALITY+LEVERAGE_CEILING; swap -> PAYLOAD_COMMITMENT_MISMATCH; contract compute_payload == TS keccak: true"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "v2 proof preserved unchanged (byte-identical file + previousDeployment)",
+      "level": "PASS",
+      "detail": "proofs/testnet-proof.v2.json sha256 99a0feb37566af15…; previousDeployment == that file"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "Committed v3 WASM hashes to the recorded code hash",
+      "level": "PASS",
+      "detail": "sha256(contracts/risk-guard-v3/res/zerodelta_risk_guard_v3.wasm) = CJ1BEUKBhtU6E744SQTmhcDuXw4SchTeqoCg8YkHPAA; 375283 bytes"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "v3 market table is the Hyperliquid TESTNET table (not mainnet indices)",
+      "level": "PASS",
+      "detail": "BTC=3 ETH=4 SOL=0 NEAR=54 fetched 2026-11-11T15:04:23.380Z"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "Recorded v3 digest == TS mirror rebuilt from the recorded request (offline)",
+      "level": "PASS",
+      "detail": "SOL IOC sell 361.84 @ 91.961 on market 0; digest 20765c12877d7bba…"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "v3 MPC signature recovers to the pinned hedge address; flipped v does not (offline)",
+      "level": "PASS",
+      "detail": "zerodelta/hedge/hyperliquid -> 0xef639b571185dc6ee0e4680de4e8dd81e7e02c66"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "Hyperliquid testnet /exchange recovered the hedge address from the MPC signature (recorded)",
+      "level": "PASS",
+      "detail": "2026-11-11T15:27:06.786Z: real -> 0xef639b571185dc6ee0e4680de4e8dd81e7e02c66; v flipped -> 0xd9cf502b9ce06090c94da764e15446fbcd0e3608; s bit flipped -> 0x3f5dc82cce54c4bd60f12c5d1263ddb13a189860"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "Rust parity fixture is current (regenerated from the TS modules)",
+      "level": "PASS",
+      "detail": "64 actions, 110 contract-level cases"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "v3: Create and fund the v3 guard account (storage stake + 1 NEAR)",
+      "level": "PASS",
+      "detail": "SUCCESS · zerodelta-solver-fb604f.testnet -> testnet.create_account · succeeded on-chain (FINAL) · https://testnet.nearblocks.io/txns/GrYo4p8tMcJc5Un6LvTT6psJ5bbKC8dKiYZ6WTcCEzKi"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "v3: Deploy v3, register policy + market table, delete the only access key",
+      "level": "PASS",
+      "detail": "SUCCESS · zerodelta-guard-v3-a9c75f.testnet -> zerodelta-guard-v3-a9c75f.testnet.new · succeeded on-chain (FINAL) · https://testnet.nearblocks.io/txns/3ZazKuBgvi3mQaWout48RvujJ2cuA5FdhasvjqxUm5Vh"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "v3: Approved order: contract builds the Hyperliquid order and has the MPC sign its digest",
+      "level": "PASS",
+      "detail": "SUCCESS · zerodelta-solver-fb604f.testnet -> zerodelta-guard-v3-a9c75f.testnet.sign_executable_hedge · succeeded; contract zerodelta-guard-v3-a9c75f.testnet called v1.signer-prod.testnet.sign (FINAL) · https://testnet.nearblocks.io/txns/2SAhjj5Xju19NA3t9KsjTGAoQp5RWyhTbwEpqC6wUdkF"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "v3: Limit price 3% under the reference rejected on-chain",
+      "level": "PASS",
+      "detail": "FAILURE · zerodelta-solver-fb604f.testnet -> zerodelta-guard-v3-a9c75f.testnet.sign_executable_hedge · failed on-chain as expected: ZERODELTA_REJECTED: PRICE_OUT_OF_BAND: limit 89.651 is 301 bps from reference 92.424 (> 100 bps); no MPC receipt · https://testnet.nearblocks.io/txns/EznaA4oyAhMxADoHTEToFEurf8JZKg3vs65tGYNfKbEq"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "v3: Byte-identical replay of the approved request rejected on-chain",
+      "level": "PASS",
+      "detail": "FAILURE · zerodelta-solver-fb604f.testnet -> zerodelta-guard-v3-a9c75f.testnet.sign_executable_hedge · failed on-chain as expected: ZERODELTA_REJECTED: NONCE_ALREADY_USED: nonce 1794409521698 <= last accepted 1794409521698; no MPC receipt · https://testnet.nearblocks.io/txns/CRCZghG2vHL3xrSp27XuWM41SmtR6pNsKjE8FoYLLyjQ"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "v3: Solver calling the #[private] MPC callback directly is rejected",
+      "level": "PASS",
+      "detail": "FAILURE · zerodelta-solver-fb604f.testnet -> zerodelta-guard-v3-a9c75f.testnet.on_mpc_signed · failed on-chain as expected: {\"ActionError\":{\"index\":0,\"kind\":{\"FunctionCallError\":{\"ExecutionError\":\"Smart contract panicked: Method on_mpc_signed is private\"}}}}; no MPC receipt · https://testnet.nearblocks.io/txns/8pL5kKgXZkry3WVXeA2ai4Ys6nzj5BgQDUbt5CBieoSh"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "v3: no rejected transaction produced an MPC receipt; the approved one did",
+      "level": "PASS",
+      "detail": "3 rejected txs without MPC receipts; approved tx returned the recorded {r, s, v}: true"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "v3: contract is locked; code, policy, markets and MPC target match",
+      "level": "PASS",
+      "detail": "0 access keys; code CJ1BEUKBhtU6E744SQTmhcDuXw4SchTeqoCg8YkHPAA; last_nonce 1794409521698; attestations 1"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "v3: attestation #0 holds the built action, digest and Hyperliquid signature",
+      "level": "PASS",
+      "detail": "Signed; v = 28; {\"type\":\"order\",\"orders\":[{\"a\":0,\"b\":false,\"p\":\"91.961\",\"s\":…"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "v3: contract view rebuilds the same digest today (and rejects the reused nonce)",
+      "level": "PASS",
+      "detail": "on-chain digest 20765c12877d7bba… == TS 20765c12877d7bba…; now NONCE_ALREADY_USED+STALE_ORDER"
+    },
+    {
+      "section": "10. Risk Guard v3: executable Hyperliquid signature (testnet)",
+      "name": "v3: live derived hedge key matches the pinned address",
+      "level": "PASS",
+      "detail": "zerodelta-guard-v3-a9c75f.testnet / zerodelta/hedge/hyperliquid -> 0xef639b571185DC6ee0E4680dE4e8dD81e7e02C66"
     }
   ]
 }
