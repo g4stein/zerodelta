@@ -213,19 +213,6 @@ Full threat model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). In short, b
 4. Real TEE attestation (NEAR AI Cloud / Phala TDX) verified against vendor collateral.
 5. Funded execution on mainnet only after an external audit.
 
-## How this differs from related NEAR HACKATHON projects
-
-Checked on 2026-11-11 against each project's public repository, site or demo post, found through the [official project directory](https://nearhackathon.com). Only claims those sources state are listed; projects whose sources could not be confirmed are omitted.
-
-| Project | What it does (from its own README or demo) | Difference from ZeroDelta v3.1 |
-|---|---|---|
-| [nearx402](https://github.com/svmacc/nearx402) | A spend-policy wallet for agents that pay x402 APIs: the contract verifies a Groth16 proof that a payment obeys a private policy before transferring a token on NEAR. Its README says the testnet contract is not locked, by choice. | It guards token transfers on NEAR. ZeroDelta's keyless contract is the signer for an order on an external exchange, and the exchange recovered its key. |
-| [Delivered](https://jobdelivered.xyz) ([demo post](https://x.com/Story91_/status/2119547336649269753)) | Escrow for agent work: a checklist is agreed before the reward locks, and a NEAR testnet contract pays only if every check passes. | Pays NEAR for checked work; it does not sign for another chain or venue. |
-| [Judge on NEAR](https://github.com/vijaygopalbalasa/judge-near) | Escrow for agent work: a fixed judge program checks an encrypted delivery inside a TEE (OutLayer), then one NEAR transaction pays the worker and releases the key, or refunds. | Settles a NEAR escrow; no external-chain signing. |
-| [x402Interop](https://github.com/the3rdweblabs/x402Interop) | Cross-chain x402 payments: the buyer pays on its chain, the seller is paid on its own, settled through NEAR Intents. | Payment interoperability, not a signing guard for an agent's trades. |
-| [presign-guard](https://github.com/Fizzl13/presign-guard) | A pre-sign risk check (green / orange / red, paid per call over x402, with a free quick tier) for NEAR transactions and NEAR Intents messages, run before an agent signs. | The agent signs with its own key once the check passes. In ZeroDelta no agent holds a key: the keyless contract is the only path to it. |
-| [Claw Guard](https://github.com/metafrogmeme-droid/claw-guard-near) | The closest design: a NEAR contract checks owner rules per order (markets, caps, leverage), builds the Hyperliquid testnet or Base Sepolia payload itself and asks Chain Signatures to sign it; it also runs a small locked demo contract on mainnet. Its README (as of 2026-11-11) says no order has been sent to Hyperliquid testnet yet, the owner's key can change the rules, and locking the testnet contract's key is an owner decision. | Both contracts build the payload and are the signer. ZeroDelta v3 differs in three ways: its contract has **0 access keys and no rule setter**; it checks **delta neutrality and leverage recomputed from the full hedge legs**, plus a price band and Hyperliquid's tick rules; and **the exchange has recovered its key from one of its MPC signatures**, with negative controls. |
-
 ## v2 → v3 → v3.1 (what changed during the hackathon)
 
 All ZeroDelta code was written inside the hackathon window (first commit 2026-11-08; the window opened 2026-10-19), so there is no pre-hackathon baseline. v3 was built on the dedicated branch [`v3-executable-signing`](https://github.com/g4stein/zerodelta/tree/v3-executable-signing) from the safety tag `v2-before-v3`.
@@ -248,7 +235,7 @@ All ZeroDelta code was written inside the hackathon window (first commit 2026-11
 
 ## Built with, and disclosure
 
-Next.js 16, React 19, Tailwind 4, near-api-js 7, near-sdk 5.5 (Rust), secp256k1 (Rust, tests only), tweetnacl, @noble/hashes, @noble/curves, @msgpack/msgpack, bs58, lucide-react, Vitest, tsx. All code was written during the hackathon window (first commit 2026-11-08) with an AI coding agent (Kiro); the hackathon rules allow AI-written code and libraries (HACKATHON.md Q-005). If the author submits a second NEAR HACKATHON project, both READMEs must name each other (Q-015).
+Next.js 16, React 19, Tailwind 4, near-api-js 7, near-sdk 5.5 (Rust), secp256k1 (Rust, tests only), tweetnacl, @noble/hashes, @noble/curves, @msgpack/msgpack, bs58, lucide-react, Vitest, tsx. All code was written during the hackathon window (first commit 2026-11-08) with an AI coding agent (Kiro); the hackathon rules allow AI-written code and libraries (HACKATHON.md Q-005).
 
 **Repo map:** contracts [`contracts/risk-guard/`](contracts/risk-guard/) (v2) and [`contracts/risk-guard-v3/`](contracts/risk-guard-v3/) (v3) · agents [`src/lib/agents/`](src/lib/agents/) · NEAR integration [`src/lib/near/`](src/lib/near/) · Hyperliquid readiness [`src/lib/hyperliquid/`](src/lib/hyperliquid/) · API [`src/app/api/swarm/route.ts`](src/app/api/swarm/route.ts) · UI [`src/app/page.tsx`](src/app/page.tsx) · harness [`scripts/verify-hackathon.ts`](scripts/verify-hackathon.ts) · setup [`scripts/testnet-setup.ts`](scripts/testnet-setup.ts) (v2), [`scripts/testnet-setup-v3.ts`](scripts/testnet-setup-v3.ts) (v3) · exchange check [`scripts/hl-acceptance.ts`](scripts/hl-acceptance.ts) · docs [`docs/`](docs/)
 
