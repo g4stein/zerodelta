@@ -73,13 +73,15 @@ import { evaluateRiskInvariants, GUARDIAN_NEAR_ACCOUNT, HEDGE_DERIVATION_PATH, r
 import { runSwarm, verifyAuditChain } from "../src/lib/swarm/orchestrator";
 import { USDC_NEAR_ASSET } from "../src/lib/swarm/types";
 import { bytesToHex } from "../src/lib/crypto/encoding";
-import { V3_PROOF_JSON } from "../src/lib/near/proofFile";
+import { V3_PROOF_JSON, V31_PROOF_JSON } from "../src/lib/near/proofFile";
 import { getAccessKeyCount, type ProofTx } from "../src/lib/near/riskGuardContract";
 import { nearRpc } from "../src/lib/near/rpcClient";
 import { HYPERLIQUID_PERPS_TESTNET } from "../src/lib/hyperliquid/exchangeSigning";
 import { buildV3Hedge, type V3Market } from "../src/lib/hyperliquid/v3Hedge";
+import { buildV31Hedge, coinsToE8, V31_SIZE_CAPS, type V31Market } from "../src/lib/hyperliquid/v31Hedge";
 import { recoverAddress } from "./testnet-setup-v3";
 import { buildHlVectors, HL_VECTORS_PATH } from "./hl-vectors";
+import { buildHlVectorsV31, HL_VECTORS_V31_PATH } from "./hl-vectors-v31";
 
 /** Key-order-independent JSON, for comparing objects that were re-serialised. */
 const canonicalJson = (o: unknown): string =>
@@ -392,7 +394,7 @@ async function main() {
   });
 
   // 10 -----------------------------------------------------------------------
-  heading("10. Risk Guard v3: executable Hyperliquid signature (testnet)");
+  heading("10. Risk Guard v3 (SUPERSEDED by v3.1): historical executable signature (testnet)");
   const v3 = V3_PROOF_JSON as any;
   if (!v3) {
     record("testnet-proof.json has a v3 deployment", "FAIL", "no v3 section");
@@ -424,7 +426,7 @@ async function main() {
     const rec3 = recoverAddress(v3.approvedHedge.digestHex, sig3);
     const recFlip = recoverAddress(v3.approvedHedge.digestHex, { ...sig3, v: sig3.v === 27 ? 28 : 27 });
     check("v3 MPC signature recovers to the pinned hedge address; flipped v does not (offline)", rec3 === v3.hedgeKey.evmAddress.toLowerCase() && recFlip !== rec3, `${v3.hedgeKey.path} -> ${rec3}`);
-    const acc = JSON.parse(readFileSync("hl-acceptance.json", "utf8"));
+    const acc = JSON.parse(readFileSync("proofs/hl-acceptance.v3.json", "utf8"));
     const accOk =
       acc.verdict === "PASS" &&
       acc.expectedAddress === v3.hedgeKey.evmAddress.toLowerCase() &&
@@ -494,6 +496,112 @@ async function main() {
     });
   }
 
+
+  // 10 -----------------------------------------------------------------------
+  heading("11. Risk Guard v3.1: size caps + expiry + executable Hyperliquid signature (testnet, current)");
+  const v31 = V31_PROOF_JSON as any;
+  if (!v31) {
+    record("testnet-proof.json has a v3.1 deployment", "FAIL", "no v3.1 section");
+  } else {
+    const G31: string = v31.contract.accountId;
+    const v3Bytes = readFileSync(v31.previousDeploymentFile.path);
+    const v3Sha = Buffer.from(sha256Bytes(new Uint8Array(v3Bytes))).toString("hex");
+    check(
+      "v3 proof preserved unchanged (byte-identical file == previousDeployment; v2 proof inside is unchanged)",
+      v31.previousDeploymentFile.sha256 === v3Sha && canonicalJson(v31.previousDeployment) === canonicalJson(JSON.parse(v3Bytes.toString("utf8"))) && v31.previousDeployment.previousDeploymentFile.sha256 === "99a0feb37566af1578148481191cad69511b78f2bcac552f729cabb09b138581",
+      `${v31.previousDeploymentFile.path} sha256 ${v3Sha.slice(0, 16)}…`,
+    );
+    check("Superseded v3 findings are disclosed in the proof file", Array.isArray(v31.supersededV3?.findings) && v31.supersededV3.findings.length >= 3, `${v31.supersededV3?.findings?.length ?? 0} findings recorded`);
+    const wasm31 = readFileSync(v31.contract.wasmPath);
+    const wasm31B58 = toBase58(sha256Bytes(new Uint8Array(wasm31)));
+    check("Committed v3.1 WASM hashes to the recorded code hash", wasm31B58 === v31.contract.codeHash && wasm31.length === v31.contract.wasmBytes, `sha256(${v31.contract.wasmPath}) = ${wasm31B58}; ${wasm31.length} bytes`);
+    check(
+      "v3.1 market table is the Hyperliquid TESTNET table (not mainnet indices)",
+      JSON.stringify(v31.contract.markets) === JSON.stringify(Object.entries(HYPERLIQUID_PERPS_TESTNET).map(([symbol, m]) => ({ symbol, asset: m.asset, sz_decimals: m.szDecimals, max_order_size_e8: Number(coinsToE8(V31_SIZE_CAPS[symbol].maxOrderCoins)), window_size_cap_e8: Number(coinsToE8(V31_SIZE_CAPS[symbol].windowCoins)) }))) && v31.contract.hlNetwork === "testnet",
+      `${v31.contract.markets.map((m: V31Market) => `${m.symbol}=${m.asset} cap ${Number(m.max_order_size_e8) / 1e8}`).join(" ")} fetched ${v31.contract.marketsFetchedAt}`,
+    );
+    const req = v31.approvedHedge.args.request;
+    const rebuilt31 = buildV31Hedge(G31, "testnet", v31.approvedHedge.market, req.order, BigInt(req.limit_px_e8), BigInt(req.reference_px_e8), BigInt(req.expires_after_ms), v31.contract.policy);
+    check(
+      "Recorded v3.1 digest == TS mirror rebuilt from the recorded request (offline)",
+      rebuilt31.violations.length === 0 && rebuilt31.digestHex === v31.approvedHedge.digestHex && rebuilt31.commitmentHex === v31.approvedHedge.commitmentHex && JSON.stringify(rebuilt31.action) === JSON.stringify(v31.approvedHedge.exchangeRequest.action),
+      `${req.order.asset_symbol} IOC sell ${rebuilt31.action?.orders[0].s} @ ${rebuilt31.action?.orders[0].p} on market ${v31.approvedHedge.market.asset}; digest ${rebuilt31.digestHex.slice(0, 16)}…`,
+    );
+    const sig31 = v31.approvedHedge.exchangeRequest.signature;
+    const rec31 = recoverAddress(v31.approvedHedge.digestHex, sig31);
+    const recFlip = recoverAddress(v31.approvedHedge.digestHex, { ...sig31, v: sig31.v === 27 ? 28 : 27 });
+    check("v3.1 MPC signature recovers to the pinned hedge address; flipped v does not (offline)", rec31 === v31.hedgeKey.evmAddress.toLowerCase() && recFlip !== rec31, `${v31.hedgeKey.path} -> ${rec31}`);
+    const acc = JSON.parse(readFileSync("hl-acceptance.json", "utf8"));
+    const accOk =
+      acc.verdict === "PASS" &&
+      acc.expectedAddress === v31.hedgeKey.evmAddress.toLowerCase() &&
+      acc.digestHex === v31.approvedHedge.digestHex &&
+      acc.results.map((x: { classification: string }) => x.classification).join() === "PASS,FAIL,FAIL" &&
+      acc.results.every((x: { recoveredAddress: string; request: { signature: { r: string; s: string; v: number } }; rawResponse: string }) => x.recoveredAddress === recoverAddress(v31.approvedHedge.digestHex, x.request.signature) && x.rawResponse.includes(x.recoveredAddress));
+    check(
+      "Hyperliquid testnet /exchange recovered the hedge address from the MPC signature (recorded)",
+      accOk,
+      `${acc.ranAt}: real -> ${acc.results[0]?.recoveredAddress}; v flipped -> ${acc.results[1]?.recoveredAddress}; s bit flipped -> ${acc.results[2]?.recoveredAddress}`,
+    );
+    const fixture = JSON.parse(readFileSync(HL_VECTORS_V31_PATH, "utf8"));
+    check("Rust parity fixture (v3.1) is current (regenerated from the TS modules)", canonicalJson(fixture) === canonicalJson(JSON.parse(JSON.stringify(buildHlVectorsV31()))), `${fixture.orders.length} actions, ${fixture.hedges.length} contract-level cases`);
+
+    const v31Tx = new Map<string, TxVerification>();
+    for (const tx of v31.transactions as ProofTx[]) {
+      await live(`v3.1: ${tx.label}`, async () => {
+        const v = await verifyProofTx(tx);
+        v31Tx.set(tx.kind, v);
+        check(`v3.1: ${tx.label}`, v.matchesExpectation, `${v.onchainStatus} · ${tx.signerId} -> ${tx.receiverId}.${tx.methodName} · ${v.detail} · ${tx.explorerUrl}`);
+      });
+    }
+    await live("v3.1: no rejected transaction produced an MPC receipt; the approved one did", async () => {
+      const rejected = (v31.transactions as ProofTx[]).filter((t) => t.expect === "failure");
+      const clean = rejected.every((t) => v31Tx.get(t.kind)?.found && !v31Tx.get(t.kind)!.receipts.some((rc) => rc.receiverId === MPC_CONTRACT));
+      const ap = v31Tx.get("APPROVED_EXECUTABLE_HEDGE_SIGNED");
+      const ret = ap?.returnValue ? JSON.parse(ap.returnValue) : null;
+      const signed = Boolean(ap?.gateReceipt) && ap!.gateReceipt!.predecessorId === G31 && ret?.r === sig31.r && ret?.s === sig31.s && ret?.v === sig31.v;
+      check("v3.1: no rejected transaction produced an MPC receipt; the approved one did", clean && signed, `${rejected.length} rejected txs without MPC receipts; approved tx returned the recorded {r, s, v}: ${signed}`);
+    });
+    await live("v3.1: contract is locked; code, policy, markets and MPC target match", async () => {
+      const [cfg, acct, keys] = await Promise.all([
+        viewFunction<any>("testnet", G31, "get_config"),
+        nearRpc<{ code_hash: string }>("testnet", "query", { request_type: "view_account", finality: "final", account_id: G31 }),
+        getAccessKeyCount(G31),
+      ]);
+      const c = cfg.ok ? cfg.value : null;
+      const ok =
+        keys === 0 &&
+        acct.ok &&
+        acct.result?.code_hash === v31.contract.codeHash &&
+        c &&
+        JSON.stringify(c.policy) === JSON.stringify(v31.contract.policy) &&
+        JSON.stringify(c.markets) === JSON.stringify(v31.contract.markets) &&
+        c.hl_network === "testnet" &&
+        c.mpc_signer_contract === MPC_CONTRACT &&
+        c.mpc_path === v31.hedgeKey.path &&
+        c.solver === v31.accounts.solver &&
+        c.last_nonce >= req.order.nonce;
+      check("v3.1: contract is locked; code, policy, markets and MPC target match", Boolean(ok), `${keys} access keys; code ${acct.ok ? acct.result?.code_hash : "?"}; last_nonce ${c?.last_nonce}; attestations ${c?.attestation_count}`);
+    });
+    await live("v3.1: attestation #0 holds the built action, digest and Hyperliquid signature", async () => {
+      const r = await viewFunction<any>("testnet", G31, "get_attestation", { index: 0 });
+      const a = r.ok ? r.value : null;
+      const ok = a && a.mpc_status === "Signed" && a.digest_hex === v31.approvedHedge.digestHex && a.commitment_hex === v31.approvedHedge.commitmentHex && a.action_json === JSON.stringify(v31.approvedHedge.exchangeRequest.action) && JSON.stringify(a.hl_signature) === JSON.stringify(sig31);
+      check("v3.1: attestation #0 holds the built action, digest and Hyperliquid signature", Boolean(ok), a ? `${a.mpc_status}; v = ${a.hl_signature?.v}; ${a.action_json.slice(0, 60)}…` : r.ok ? "missing" : r.error);
+    });
+    await live("v3.1: contract view rebuilds the same digest today (and rejects the reused nonce)", async () => {
+      const r = await viewFunction<any>("testnet", G31, "preview_executable_hedge", { request: req });
+      const e = r.ok ? r.value : null;
+      const ok = e && e.digest_hex === rebuilt31.digestHex && e.commitment_hex === rebuilt31.commitmentHex && e.approved === false && e.violations.some((x: string) => x.startsWith("NONCE_ALREADY_USED"));
+      check("v3.1: contract view rebuilds the same digest today (and rejects the reused nonce)", Boolean(ok), e ? `on-chain digest ${e.digest_hex.slice(0, 16)}… == TS ${rebuilt31.digestHex.slice(0, 16)}…; now ${e.violations.map((x: string) => x.split(":")[0]).join("+")}` : r.ok ? "no result" : r.error);
+    });
+    await live("v3.1: live derived hedge key matches the pinned address", async () => {
+      const d = await getMpcDerivedAccount(v31.hedgeKey.path, G31);
+      check("v3.1: live derived hedge key matches the pinned address", d.live && d.derivedPublicKey === v31.hedgeKey.derivedPublicKey && d.evmAddress?.toLowerCase() === v31.hedgeKey.evmAddress.toLowerCase(), `${G31} / ${v31.hedgeKey.path} -> ${d.evmAddress}`);
+    });
+  }
+
+
   // Summary --------------------------------------------------------------------
   const count = (l: Level) => results.filter((r) => r.level === l).length;
   const failed = count("FAIL");
@@ -544,6 +652,15 @@ async function main() {
           codeHash: (V3_PROOF_JSON as any).contract.codeHash,
           hedgeAddress: (V3_PROOF_JSON as any).hedgeKey.evmAddress,
           transactions: ((V3_PROOF_JSON as any).transactions as ProofTx[]).map((t) => ({ kind: t.kind, hash: t.hash, expect: t.expect, explorerUrl: t.explorerUrl })),
+        }
+      : null,
+    deploymentV31: V31_PROOF_JSON
+      ? {
+          network: "testnet",
+          contract: (V31_PROOF_JSON as any).contract.accountId,
+          codeHash: (V31_PROOF_JSON as any).contract.codeHash,
+          hedgeAddress: (V31_PROOF_JSON as any).hedgeKey.evmAddress,
+          transactions: ((V31_PROOF_JSON as any).transactions as ProofTx[]).map((t) => ({ kind: t.kind, hash: t.hash, expect: t.expect, explorerUrl: t.explorerUrl })),
         }
       : null,
     results,

@@ -1,8 +1,8 @@
 /**
- * Live, read-only status of the Risk Guard v3 contract (zerodelta-guard-v3-*.testnet), compared
+ * Live, read-only status of the Risk Guard v3.1 contract (zerodelta-guard-v31-*.testnet), compared
  * with the recorded proof. Used by GET /api/swarm and the dashboard's v3 panel. Writes nothing.
  */
-import { V3_PROOF_JSON } from "./proofFile";
+import { V31_PROOF_JSON } from "./proofFile";
 import { getAccessKeyCount } from "./riskGuardContract";
 import { nearRpc, viewFunction } from "./rpcClient";
 
@@ -25,9 +25,26 @@ interface V3Attestation {
   hl_signature: { r: string; s: string; v: number } | null;
 }
 
+const CACHE_MS = 60_000;
+let cache: { at: number; value: V3OnchainStatus } | null = null;
+let inflight: Promise<V3OnchainStatus> | null = null;
+
+/** Read-only status of the current (v3.1) contract. Cached 60 s per server instance so GET /api/swarm does not hit RPC four times per request. */
 export async function getV3OnchainStatus(): Promise<V3OnchainStatus | null> {
-  const p = V3_PROOF_JSON as any;
-  if (!p) return null;
+  if (cache && Date.now() - cache.at < CACHE_MS) return cache.value;
+  inflight ??= fetchStatus()
+    .then((value) => {
+      if (value.live) cache = { at: Date.now(), value };
+      return value;
+    })
+    .finally(() => {
+      inflight = null;
+    });
+  return inflight;
+}
+
+async function fetchStatus(): Promise<V3OnchainStatus> {
+  const p = V31_PROOF_JSON as any;
   const C: string = p.contract.accountId;
   const [cfg, acct, keys, att] = await Promise.all([
     viewFunction<{ last_nonce: number; attestation_count: number }>("testnet", C, "get_config"),

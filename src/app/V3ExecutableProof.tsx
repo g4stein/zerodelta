@@ -1,21 +1,21 @@
 "use client";
 
 /**
- * Risk Guard v3 panel: the binding chain from approved legs to the Hyperliquid testnet exchange,
+ * Risk Guard v3.1 panel: the binding chain from approved legs to the Hyperliquid testnet exchange,
  * with every link either recomputed in the browser, read live from the contract, or linked to the
  * historical transaction. Nothing here signs, sends or posts anything.
  */
 import { useMemo } from "react";
 import { ArrowRight, CircleCheck, CircleX, ExternalLink, Fingerprint, KeyRound, Lock, Network, ShieldCheck } from "lucide-react";
 import accJson from "../../hl-acceptance.json";
-import { V3_PROOF_JSON } from "@/lib/near/proofFile";
+import { V31_PROOF_JSON } from "@/lib/near/proofFile";
 import type { V3OnchainStatus } from "@/lib/near/riskGuardV3";
-import { buildV3Hedge } from "@/lib/hyperliquid/v3Hedge";
+import { buildV31Hedge } from "@/lib/hyperliquid/v31Hedge";
 import { recoverAddress } from "@/lib/hyperliquid/recover";
 import { Badge, Card, cx, short, usd } from "@/components/ui";
 
 const NB = "https://testnet.nearblocks.io";
-const p = V3_PROOF_JSON as any;
+const p = V31_PROOF_JSON as any;
 const acc = accJson as any;
 
 function Tag({ tone, children }: { tone: "cyan" | "violet" | "amber" | "emerald"; children: React.ReactNode }) {
@@ -69,7 +69,7 @@ export function V3ExecutableProof({ onchainV3 }: { onchainV3?: V3OnchainStatus |
   const check = useMemo(() => {
     if (!p) return null;
     const req = p.approvedHedge.args.request;
-    const b = buildV3Hedge(p.contract.accountId, "testnet", p.approvedHedge.market, req.order, BigInt(req.limit_px_e8), BigInt(req.reference_px_e8), p.contract.policy);
+    const b = buildV31Hedge(p.contract.accountId, "testnet", p.approvedHedge.market, req.order, BigInt(req.limit_px_e8), BigInt(req.reference_px_e8), BigInt(req.expires_after_ms), p.contract.policy);
     const sig = p.approvedHedge.exchangeRequest.signature;
     let recovered = "";
     let flipped = "";
@@ -92,17 +92,17 @@ export function V3ExecutableProof({ onchainV3 }: { onchainV3?: V3OnchainStatus |
   const v = onchainV3;
 
   return (
-    <Card className="mt-6 border-emerald-500/30 p-5" aria-label="Risk Guard v3 executable Hyperliquid signature">
+    <Card className="mt-6 border-emerald-500/30 p-5" aria-label="Risk Guard v3.1 executable Hyperliquid signature">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-3xl">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone="emerald">v3</Badge>
+            <Badge tone="emerald">v3.1</Badge>
             <h2 className="text-base font-semibold text-white sm:text-lg">Hyperliquid testnet recovered the contract&apos;s hedge address from the MPC signature</h2>
           </div>
           <p className="mt-1.5 text-sm leading-relaxed text-slate-400">
-            The locked v3 contract builds the Hyperliquid order itself from the approved legs, computes its EIP-712 digest, and only then asks NEAR Chain Signatures to sign it.
+            The locked v3.1 contract builds the Hyperliquid order itself from the approved legs, computes its EIP-712 digest, and checks per-market size caps, a rolling window and a one-hour expiry, and only then asks NEAR Chain Signatures to sign it.
             Hyperliquid&apos;s <span className="font-mono">/exchange</span> recovered exactly the contract&apos;s MPC-derived address; a flipped <span className="font-mono">v</span> and a flipped bit of{" "}
-            <span className="font-mono">s</span> recover different addresses. No funds, no fill: that address has no Hyperliquid account.
+            <span className="font-mono">s</span> recover different addresses. Signer recovery only: no funds, no fill, because that address has no Hyperliquid account. The swarm demo and the v2 attack demos below run against the v2 contract; v3.1 is the signing path. The earlier v3 deployment is superseded (its size-inflation flaw is disclosed in the README).
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2 text-[11px]">
@@ -114,9 +114,15 @@ export function V3ExecutableProof({ onchainV3 }: { onchainV3?: V3OnchainStatus |
             <Lock className="h-3 w-3" /> {v ? (v.locked ? "locked (0 keys)" : v.live ? `${v.accessKeyCount} keys` : "state unavailable") : "verifying…"}
           </Badge>
           {v?.attestation0 ? (
-            <Badge tone={v.attestation0.mpcStatus === "Signed" && v.attestation0.digestMatchesProof && v.attestation0.signatureMatchesProof ? "emerald" : "rose"}>
-              attestation #0 {v.attestation0.mpcStatus}; digest + {"{r,s,v}"} match
-            </Badge>
+            (() => {
+              const a0 = v.attestation0;
+              const allMatch = a0.mpcStatus === "Signed" && a0.digestMatchesProof && a0.signatureMatchesProof && a0.actionMatchesProof;
+              return (
+                <Badge tone={allMatch ? "emerald" : "rose"}>
+                  attestation #0 {a0.mpcStatus}; {allMatch ? "digest, {r,s,v} and action match the proof" : "does NOT match the recorded proof"}
+                </Badge>
+              );
+            })()
           ) : null}
         </div>
       </div>
@@ -134,7 +140,7 @@ export function V3ExecutableProof({ onchainV3 }: { onchainV3?: V3OnchainStatus |
             IOC sell {order0.s} on market {order0.a} @ {order0.p}
           </div>
           <div>
-            Reference {p.approvedHedge.referencePx}; limit within {p.contract.policy.price_band_bps} bps; size = perp short / limit, in whole lots. Not reduce-only, one order.
+            Reference {p.approvedHedge.referencePx}; limit within {p.contract.policy.price_band_bps} bps; size = perp short / limit, in whole lots, and capped in coins per market. Not reduce-only, one order.
           </div>
           <div>Testnet index {order0.a} (mainnet would be 5).</div>
         </Step>
@@ -175,7 +181,8 @@ export function V3ExecutableProof({ onchainV3 }: { onchainV3?: V3OnchainStatus |
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
         <Tag tone="violet">HISTORICAL ON-CHAIN PROOF</Tag>
         <Link href={txUrl("DEPLOY_INIT_AND_LOCK")}>deploy + lock</Link>
-        <Link href={txUrl("PRICE_OUT_OF_BAND_REJECTED")}>price out of band rejected</Link>
+        <Link href={txUrl("INFLATION_ATTACK_REJECTED")}>size-inflation attack rejected</Link>
+        <Link href={txUrl("EXPIRY_TOO_FAR_REJECTED")}>over-long expiry rejected</Link>
         <Link href={txUrl("REPLAY_REJECTED")}>replay rejected</Link>
         <Link href={txUrl("PRIVATE_CALLBACK_REJECTED")}>private callback rejected</Link>
         <span>Rejected transactions produced no MPC receipt. The v2 attack demos below are unchanged.</span>

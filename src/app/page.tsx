@@ -34,7 +34,7 @@ import type { LiveTelemetry as BaseTelemetry } from "@/lib/near/rpcClient";
 import type { OnchainProofStatus, TestnetProof } from "@/lib/near/riskGuardContract";
 import type { V3OnchainStatus } from "@/lib/near/riskGuardV3";
 import { V3ExecutableProof } from "./V3ExecutableProof";
-import { V2_PROOF_JSON, V3_PROOF_JSON } from "@/lib/near/proofFile";
+import { V2_PROOF_JSON, V31_PROOF_JSON } from "@/lib/near/proofFile";
 import { computeOrderMetrics, type OrderParams } from "@/lib/near/orderCommitment";
 
 /** Public v2 proof data, bundled statically so the links are in the very first HTML response. */
@@ -42,7 +42,7 @@ const PROOF = V2_PROOF_JSON as unknown as TestnetProof;
 const NEARBLOCKS = "https://testnet.nearblocks.io";
 const nbAccount = (id: string) => `${NEARBLOCKS}/address/${id}`;
 const proofTx = (kind: string) => PROOF.transactions.find((t) => t.kind === kind);
-const V3_TX = (kind: string) => ((V3_PROOF_JSON as any)?.transactions as { kind: string; explorerUrl: string }[] | undefined)?.find((t) => t.kind === kind)?.explorerUrl;
+const V3_TX = (kind: string) => ((V31_PROOF_JSON as any)?.transactions as { kind: string; explorerUrl: string }[] | undefined)?.find((t) => t.kind === kind)?.explorerUrl;
 import type { SwarmRun } from "@/lib/swarm/orchestrator";
 import type { PairSelection, SwarmMode } from "@/lib/swarm/types";
 import { Badge, Card, CodeBlock, KV, cx, short, usd } from "@/components/ui";
@@ -401,7 +401,7 @@ function OnchainProofStrip({ onchain }: { onchain?: OnchainProofStatus }) {
           policy {policy.max_delta_bps}/{policy.max_leverage_x100}/{policy.max_slippage_bps}
         </Badge>
         <Badge tone={onchain?.guard.locked === false ? "rose" : "violet"}>
-          <Lock className="h-3 w-3" /> {onchain?.guard.locked === false ? "NOT locked" : "locked (0 keys)"}
+          <Lock className="h-3 w-3" /> {onchain?.guard.locked === false ? "NOT locked" : onchain?.guard.locked === true ? "locked (0 keys)" : "lock state unavailable"}
         </Badge>
         {onchain?.guard.attestationCount !== undefined ? (
           <Badge tone="cyan">
@@ -683,10 +683,10 @@ function HonestyPanel() {
     { label: "Replayed order rejected (nonce)", status: "Failed tx (on purpose)", tone: "cyan", href: tx("REPLAY_REJECTED") },
     { label: "Contract recomputes every dashboard run", status: "Live view call", tone: "emerald" },
     { label: "Multi-asset ranking + slice negotiation", status: "Live quotes", tone: "emerald" },
-    { label: "v3 contract builds the Hyperliquid order + EIP-712 digest, then calls MPC sign", status: "Testnet tx", tone: "cyan", href: V3_TX("APPROVED_EXECUTABLE_HEDGE_SIGNED") },
-    { label: "Hyperliquid testnet recovers the contract's hedge address from that signature", status: "Recorded exchange response", tone: "cyan" },
+    { label: "v3.1 contract builds the Hyperliquid order + EIP-712 digest (size caps, expiry), then calls MPC sign", status: "Testnet tx", tone: "cyan", href: V3_TX("APPROVED_EXECUTABLE_HEDGE_SIGNED") },
+    { label: "Hyperliquid testnet recovers the contract's hedge address from that signature (signer recovery; no order placed)", status: "Recorded exchange response", tone: "cyan" },
     { label: "TEE enclave + attestation (prototype boundary)", status: "Software-simulated", tone: "amber" },
-    { label: "Reference price for the v3 price band", status: "Trusted solver input", tone: "amber" },
+    { label: "Reference price for the v3.1 price band (size is capped in coins regardless)", status: "Trusted solver input", tone: "amber" },
     { label: "Real fills / funds movement / mainnet", status: "None", tone: "amber" },
   ];
   return (
