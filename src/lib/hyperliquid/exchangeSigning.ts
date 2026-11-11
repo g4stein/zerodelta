@@ -98,11 +98,15 @@ function u64be(n: number | bigint): Uint8Array {
   return out;
 }
 
-/** keccak256(msgpack(action) || nonce_u64_be || vault flag [|| vault address]) — SDK `action_hash` without expiresAfter. */
-export function actionHash(action: unknown, nonce: number | bigint, vaultAddress: string | null = null): Uint8Array {
+/**
+ * keccak256(msgpack(action) || nonce_u64_be || vault flag [|| vault address] [|| 0x00 || expiresAfter_u64_be])
+ * — the SDK's `action_hash`. `expiresAfter` (ms) is optional and, when present, is part of what gets signed.
+ */
+export function actionHash(action: unknown, nonce: number | bigint, vaultAddress: string | null = null, expiresAfter: number | bigint | null = null): Uint8Array {
   const packed = encode(action);
   const vault = vaultAddress === null ? new Uint8Array([0]) : concatBytes(new Uint8Array([1]), hexToBytes(vaultAddress.replace(/^0x/, "").toLowerCase()));
-  return keccak_256(concatBytes(packed, u64be(nonce), vault));
+  const expiry = expiresAfter === null ? new Uint8Array(0) : concatBytes(new Uint8Array([0]), u64be(expiresAfter));
+  return keccak_256(concatBytes(packed, u64be(nonce), vault, expiry));
 }
 
 const keccak = (b: Uint8Array) => keccak_256(b);
@@ -153,8 +157,11 @@ export interface HedgeBindingCheck {
  * `priceBandBps` of a trusted reference price (mark/oracle), and size × reference price
  * within `toleranceBps` of the approved perp-short notional.
  *
- * The reference price matters: an IOC sell fills at the bid, so checking size × limit price
- * alone would let 100× the size through at 1/100 of the price.
+ * Two notional checks, because the order is sized from the limit price (as the v3.1 contract does):
+ * (1) size × limit within `toleranceBps` of the approved notional (the contract's rule), and
+ * (2) size × reference within `toleranceBps + priceBandBps` of it. Check (1) alone would accept 100× the
+ * size at 1/100 of the price, because size × limit stays constant; check (2) catches that. Both report
+ * `NOTIONAL_MISMATCH`. Pass the matching market table (`HYPERLIQUID_PERPS_TESTNET` for testnet orders).
  */
 export function checkActionMatchesApprovedHedge(
   action: OrderAction,
@@ -162,9 +169,10 @@ export function checkActionMatchesApprovedHedge(
   referencePx: number,
   toleranceBps = 50,
   priceBandBps = 100,
+  perps: Record<string, { asset: number; szDecimals: number }> = HYPERLIQUID_PERPS,
 ): HedgeBindingCheck {
   const v: string[] = [];
-  const perp = HYPERLIQUID_PERPS[approved.asset_symbol];
+  const perp = perps[approved.asset_symbol];
   const approvedNotionalUsd = approved.perp_short_usd_cents / 100;
   if (!(referencePx > 0) || !Number.isFinite(referencePx)) v.push("NO_TRUSTED_REFERENCE_PRICE");
   if (!perp) v.push(`UNSUPPORTED_ASSET: ${approved.asset_symbol}`);
@@ -173,6 +181,7 @@ export function checkActionMatchesApprovedHedge(
   if (action.orders.length !== 1) v.push(`EXPECTED_ONE_ORDER: got ${action.orders.length}`);
   const o = action.orders[0];
   let notionalUsd = 0;
+  let notionalAtRefUsd = 0;
   if (o) {
     if (perp && o.a !== perp.asset) v.push(`WRONG_MARKET: asset ${o.a} != ${perp.asset} (${approved.asset_symbol})`);
     if (o.b !== false) v.push("WRONG_SIDE: hedge must be a SELL (short)");
@@ -184,10 +193,16 @@ export function checkActionMatchesApprovedHedge(
     if (referencePx > 0 && Math.abs(px - referencePx) / referencePx > priceBandBps / 10_000) {
       v.push(`PRICE_OUTSIDE_BAND: limit ${o.p} vs reference ${referencePx} (> ${priceBandBps} bps)`);
     }
-    notionalUsd = Number(o.s) * (referencePx > 0 ? referencePx : px);
+    notionalUsd = Number(o.s) * px;
+    notionalAtRefUsd = Number(o.s) * (referencePx > 0 ? referencePx : px);
   }
-  const deviationBps = approvedNotionalUsd > 0 ? (Math.abs(notionalUsd - approvedNotionalUsd) / approvedNotionalUsd) * 10_000 : Number.POSITIVE_INFINITY;
-  if (!(deviationBps <= toleranceBps)) v.push(`NOTIONAL_MISMATCH: ${notionalUsd.toFixed(2)} vs approved ${approvedNotionalUsd.toFixed(2)} (${deviationBps.toFixed(1)} bps)`);
+  const dev = (x: number) => (approvedNotionalUsd > 0 ? (Math.abs(x - approvedNotionalUsd) / approvedNotionalUsd) * 10_000 : Number.POSITIVE_INFINITY);
+  const deviationBps = dev(notionalUsd);
+  const deviationAtRefBps = dev(notionalAtRefUsd);
+  if (!(deviationBps <= toleranceBps)) v.push(`NOTIONAL_MISMATCH: size x limit ${notionalUsd.toFixed(2)} vs approved ${approvedNotionalUsd.toFixed(2)} (${deviationBps.toFixed(1)} bps)`);
+  else if (!(deviationAtRefBps <= toleranceBps + priceBandBps)) {
+    v.push(`NOTIONAL_MISMATCH: size x reference ${notionalAtRefUsd.toFixed(2)} vs approved ${approvedNotionalUsd.toFixed(2)} (${deviationAtRefBps.toFixed(1)} bps)`);
+  }
   return { ok: v.length === 0, violations: v, notionalUsd, approvedNotionalUsd, deviationBps };
 }
 
