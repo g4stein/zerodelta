@@ -510,6 +510,9 @@ async function main() {
   const finalAcct = (await viewAccount(G))!;
   const config = await view<Record<string, unknown>>(G, "get_config", {});
   const existing = JSON.parse(readFileSync(PROOF_FILE, "utf8"));
+  if (existing.version !== 2 && existing.version !== 3) {
+    throw new Error(`testnet-proof.json is version ${existing.version}: refusing to overwrite a newer proof with the v3 setup script`);
+  }
   if (existing.version === 2) {
     mkdirSync("proofs", { recursive: true });
     writeFileSync(V2_COPY, readFileSync(PROOF_FILE)); // byte-identical copy of the v2 proof

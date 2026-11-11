@@ -26,7 +26,10 @@
     "hl:acceptance": "npx tsx scripts/hl-acceptance.ts",
     "verify:report": "VERIFY_REPORT_PATH=verify-report.json npx tsx scripts/verify-hackathon.ts",
     "hl:vectors:v31": "npx tsx scripts/hl-vectors-v31.ts",
-    "test:contract:v31": "cd contracts/risk-guard-v31 && cargo test"
+    "test:contract:v31": "cd contracts/risk-guard-v31 && cargo test",
+    "testnet:setup:v31": "npx tsx scripts/testnet-setup-v31.ts",
+    "contract:build:v31": "cd contracts/risk-guard-v31 && cargo +1.81.0 build --locked --release --target wasm32-unknown-unknown && mkdir -p res && cp target/wasm32-unknown-unknown/release/zerodelta_risk_guard_v31.wasm res/",
+    "mutation:v31": "python3 contracts/mutation-test.py v31"
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.3",
