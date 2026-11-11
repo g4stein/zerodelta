@@ -73,3 +73,24 @@ export function lotsToE8(lots: bigint, szDecimals: number): bigint {
   if (v > U64_MAX) throw new Error("SIZE_OVERFLOW");
   return v;
 }
+
+/**
+ * Largest valid perp price <= pxE8 (integer prices always valid; else <= 5 significant figures
+ * and <= 6 - szDecimals decimals). Used to turn "reference − 50 bps" into a tick-valid limit.
+ */
+export function roundDownToValidPerpPrice(pxE8: bigint, szDecimals: number): bigint {
+  if (pxE8 <= 0n) throw new Error("PRICE_ZERO");
+  const intDigits = pxE8 / E8 > 0n ? (pxE8 / E8).toString().length : 0;
+  let maxDec = MAX_PERP_DECIMALS - szDecimals;
+  if (intDigits > 0) maxDec = Math.min(maxDec, Math.max(0, MAX_PRICE_SIG_FIGS - intDigits));
+  else {
+    // leading zeros after the point don't count as significant figures
+    const frac = (pxE8 % E8).toString().padStart(8, "0");
+    const leading = frac.length - frac.replace(/^0+/, "").length;
+    maxDec = Math.min(maxDec, leading + MAX_PRICE_SIG_FIGS);
+  }
+  const step = 10n ** BigInt(8 - Math.min(8, maxDec));
+  const out = (pxE8 / step) * step;
+  if (out === 0n || checkPerpPrice(out, szDecimals) !== null) throw new Error(`no valid price at or below ${wireE8(pxE8)}`);
+  return out;
+}

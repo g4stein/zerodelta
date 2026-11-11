@@ -5,10 +5,11 @@
  * through environment variables while it deploys a fresh contract, so the swarm
  * can build commitments for the new contract before the proof file is written.
  */
-import proofJson from "../../../testnet-proof.json";
+import { V2_PROOF_JSON } from "./proofFile";
 
 const env = typeof process !== "undefined" && process.env ? process.env : ({} as Record<string, string | undefined>);
-const proof = proofJson as { contract?: { accountId?: string }; accounts?: { guard?: string; solver?: string } };
+// The v2 swarm and dashboard talk to the v2 contract; v3 reads V3_PROOF_JSON.
+const proof = V2_PROOF_JSON as { contract?: { accountId?: string }; accounts?: { guard?: string; solver?: string } };
 
 /** The Risk Guard contract account. It is also the MPC predecessor for the hedge key. */
 export const RISK_GUARD_CONTRACT_ID: string =

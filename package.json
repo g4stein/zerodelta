@@ -16,6 +16,7 @@
     "verify": "npx tsx scripts/verify-hackathon.ts",
     "typecheck": "tsc --noEmit",
     "testnet:setup": "npx tsx scripts/testnet-setup.ts",
+    "testnet:setup:v3": "npx tsx scripts/testnet-setup-v3.ts",
     "contract:build": "cd contracts/risk-guard && cargo +1.81.0 build --release --target wasm32-unknown-unknown && cp target/wasm32-unknown-unknown/release/zerodelta_risk_guard.wasm res/",
     "verify:offline": "ZERODELTA_OFFLINE=1 npx tsx scripts/verify-hackathon.ts",
     "test:contract": "cd contracts/risk-guard && cargo test",

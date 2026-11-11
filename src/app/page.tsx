@@ -32,11 +32,11 @@ import {
 } from "lucide-react";
 import type { LiveTelemetry as BaseTelemetry } from "@/lib/near/rpcClient";
 import type { OnchainProofStatus, TestnetProof } from "@/lib/near/riskGuardContract";
-import proofJson from "../../testnet-proof.json";
+import { V2_PROOF_JSON } from "@/lib/near/proofFile";
 import { computeOrderMetrics, type OrderParams } from "@/lib/near/orderCommitment";
 
-/** Public proof data, bundled statically so the links are in the very first HTML response. */
-const PROOF = proofJson as TestnetProof;
+/** Public v2 proof data, bundled statically so the links are in the very first HTML response. */
+const PROOF = V2_PROOF_JSON as unknown as TestnetProof;
 const NEARBLOCKS = "https://testnet.nearblocks.io";
 const nbAccount = (id: string) => `${NEARBLOCKS}/address/${id}`;
 const proofTx = (kind: string) => PROOF.transactions.find((t) => t.kind === kind);
