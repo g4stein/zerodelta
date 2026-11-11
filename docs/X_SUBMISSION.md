@@ -32,15 +32,15 @@ Length: 279.
 
 ```
 How to check it yourself:
-• npm run hl:acceptance → Hyperliquid testnet names 0xef63...2c66, the contract's MPC key. Flip v or one bit of s: different address
-• npm run verify → 75 read-only checks
+• npm run hl:acceptance → recorded Hyperliquid testnet answer names 0xa74e...9f5e, the contract's MPC key. Flip v or s: other address
+• npm run verify → 95 read-only checks
 
 Testnet only, no funds, no fill.
 Code: https://github.com/g4stein/zerodelta
 @NearBuilders
 ```
 
-Length: 279.
+Length: 280.
 
 ## Checklist from the rules
 

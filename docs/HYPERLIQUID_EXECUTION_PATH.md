@@ -2,12 +2,14 @@
 
 ## Status
 
+Current path: **v3.1** ([`zerodelta-guard-v31-c6e71c.testnet`](https://testnet.nearblocks.io/address/zerodelta-guard-v31-c6e71c.testnet), adds coin size caps, a rolling window and `expiresAfter`). The v3 rows below describe the first deployment, which a pre-merge audit superseded (README, `docs/SECURITY_MODEL.md` §7.5). What was shown is Hyperliquid's **signer recovery**, not an accepted, funded order.
+
 | Step | Status |
 |---|---|
 | 1. A contract that builds the Hyperliquid action and EIP-712 digest on-chain, checks them against the risk policy, and only then calls `sign` with that digest | **Done on testnet (v3).** [`zerodelta-guard-v3-a9c75f.testnet`](https://testnet.nearblocks.io/address/zerodelta-guard-v3-a9c75f.testnet), approved [tx `2SAhjj5X…`](https://testnet.nearblocks.io/txns/2SAhjj5Xju19NA3t9KsjTGAoQp5RWyhTbwEpqC6wUdkF). Hyperliquid testnet recovered the contract's hedge address `0xef63…2c66` from the signature ([`hl-acceptance.json`](../hl-acceptance.json)). |
 | 2. The MPC-derived key becomes the Hyperliquid account (or an approved agent wallet), and funds sit there | Not done. The testnet faucet requires a mainnet deposit from the same address, which this project deliberately does not make. |
-| 3. On-chain price bounds | **Partly done.** v3 enforces a ±100 bps band around a reference price and Hyperliquid's tick rules; the reference is still a trusted solver input, not an oracle. |
-| 4. Nonce and expiry rules tied to block time | **Done (v3).** Millisecond nonces within −5 min / +60 s of block time. |
+| 3. On-chain price bounds and size caps | **Partly done.** v3.1 enforces a ±100 bps band around a reference price, Hyperliquid's tick rules, and per-market size caps in coins (per order and per 24 h) that do not depend on any price. The reference is still a trusted solver input, not an oracle. |
+| 4. Nonce and expiry rules tied to block time | **Done (v3.1).** Millisecond nonces within −5 min / +60 s of block time; `expiresAfter` at most one hour ahead, hashed into the order. |
 | 5. Funding, withdrawals, liquidation monitoring and an independent audit before real funds | Not done. |
 
 ## What the v2 contract signs
@@ -29,7 +31,7 @@ From the official Python SDK ([`hyperliquid/utils/signing.py`](https://github.co
 3. Sign the EIP-712 struct `Agent(string source, bytes32 connectionId)` with `source = "a"` (mainnet) or `"b"` (testnet), domain `{name: "Exchange", version: "1", chainId: 1337, verifyingContract: 0x0}`.
 4. POST `{action, nonce, signature: {r, s, v}}` to `/exchange`. Hyperliquid recovers the signer from the payload and checks it is the account or an approved API wallet.
 
-## What v3 does on-chain
+## What v3 (and, with additions, v3.1) does on-chain
 
 [`contracts/risk-guard-v3/src/hl.rs`](../contracts/risk-guard-v3/src/hl.rs) is an integer-only port of the TypeScript module below: `float_to_wire` on 1e-8 fixed-point integers, a msgpack encoder with `@msgpack/msgpack`'s exact byte layout, `connectionId` (no vault, no expiry) and the EIP-712 digest. `sign_executable_hedge` builds one IOC sell from the approved legs (testnet market index from the deploy-time table, size = approved perp short ÷ limit in whole lots), enforces the price band and tick rules, computes the digest and has the MPC sign it. It never takes a digest from the solver. See the [contract README](../contracts/risk-guard-v3/README.md).
 

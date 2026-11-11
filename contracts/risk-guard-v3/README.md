@@ -1,4 +1,6 @@
-# ZeroDelta Risk Guard v3 contract (not deployed yet)
+# ZeroDelta Risk Guard v3 contract (deployed, locked, SUPERSEDED by v3.1)
+
+> A pre-merge audit found that this contract approves an order many times the intended size when the solver sets the limit and reference price low (size = notional ÷ limit; the band only compares with the solver's own reference). It cannot be patched (locked), so the fixed contract is [`../risk-guard-v31`](../risk-guard-v31/). This source and wasm are kept unchanged as history. See the README and `docs/SECURITY_MODEL.md` §7.5.
 
 Rust NEAR smart contract (near-sdk 5.5). v2 (`../risk-guard`, deployed and locked as `zerodelta-guard-fb604f.testnet`) has the MPC network sign a ZeroDelta order commitment. v3 has it sign an **executable Hyperliquid order**: the contract builds the order and computes its EIP-712 digest itself, then asks NEAR Chain Signatures to sign that digest.
 
@@ -28,7 +30,7 @@ Views: `preview_executable_hedge(request)` (every check, plus the action, digest
 
 ## Trusted input
 
-`reference_px_e8` comes from the solver. A compromised solver can move the limit and the reference together, so the band limits the distance from the solver's own reference, not from the true market. Size always follows the approved notional, so a bad price can't enlarge the position; an IOC sell at a bad price fills worse or not at all.
+`reference_px_e8` comes from the solver. A compromised solver can move the limit and the reference together, so the band limits the distance from the solver's own reference, not from the true market. **This is wrong for v3:** size = approved notional ÷ limit, so a low limit enlarges the position (confirmed by a read-only preview). Fixed in v3.1 with caps in coins.
 
 ## Test
 

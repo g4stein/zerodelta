@@ -1,22 +1,38 @@
 # ZeroDelta
 
-**ZeroDelta is an autonomous cross-chain carry-strategy prototype. Its keyless NEAR Risk Guard contract recomputes the risk of every order and is the only account that can get NEAR Chain Signatures to sign for the treasury's hedge key. In v3 the contract builds the executable Hyperliquid order itself and has the MPC network sign that order's EIP-712 digest.**
+**ZeroDelta is an autonomous cross-chain carry-strategy prototype. Its keyless NEAR Risk Guard contract recomputes the risk of every order and is the only account that can get NEAR Chain Signatures to sign for the treasury's hedge key. In v3.1 the contract builds the executable Hyperliquid order itself, caps its size in coins, bounds its expiry, and has the MPC network sign that order's EIP-712 digest.**
 
 ▶ **Live demo:** [zerodelta.vercel.app](https://zerodelta.vercel.app/) (no wallet needed) · **Judge guide:** [docs/JUDGE_GUIDE.md](docs/JUDGE_GUIDE.md) · **Primary track:** 06 / SEC AI Security & Defense
 
-## v3 proof: Hyperliquid testnet recovered the contract's MPC-derived hedge address from the signature; flipped `v` and flipped `s` recover different addresses
+## v3.1 proof: a locked contract signed a size-capped Hyperliquid testnet order, and Hyperliquid recovered the contract's hedge address from the signature
+
+Contract [`zerodelta-guard-v31-c6e71c.testnet`](https://testnet.nearblocks.io/address/zerodelta-guard-v31-c6e71c.testnet), 0 access keys, hedge address `0xa74e082a55e862845d510f8d609d315afd859f5e`.
 
 | Step | What happened | Evidence |
 |---|---|---|
-| 1. Approved legs | The solver sent raw SOL legs (spot long $33,275.81, perp short $33,275.81 on a $50,000 treasury). The contract recomputed delta, leverage and slippage against the immutable 200 / 300 / 25 policy. | [tx `2SAhjj5X…`](https://testnet.nearblocks.io/txns/2SAhjj5Xju19NA3t9KsjTGAoQp5RWyhTbwEpqC6wUdkF) |
-| 2. Contract-built action | The contract built the only order it will sign: one IOC **sell** of 361.84 SOL at 91.961 on Hyperliquid **testnet** market 0, not reduce-only. Size = approved perp short ÷ limit, in whole lots. The limit is within 100 bps of the reference 92.424. | attestation #0 on [`zerodelta-guard-v3-a9c75f.testnet`](https://testnet.nearblocks.io/address/zerodelta-guard-v3-a9c75f.testnet) |
-| 3. Digest | The contract msgpack-encoded that action and computed `connectionId` and the EIP-712 phantom-agent digest `20765c12…49258ee02f` on-chain. It never accepts a digest from the solver. | `npm run verify` §10: *Recorded v3 digest == TS mirror rebuilt from the recorded request* |
-| 4. MPC sign | Only then did the contract itself call `v1.signer-prod.testnet.sign` (predecessor = contract, path `zerodelta/hedge/hyperliquid`) and store `{r, s, v = recovery_id + 27}`. | receipt `zerodelta-guard-v3-a9c75f.testnet → v1.signer-prod.testnet.sign` in the same tx |
-| 5. Exchange | `POST https://api.hyperliquid-testnet.xyz/exchange` with `{action, nonce, signature}`. Hyperliquid recovered **`0xef639b571185dc6ee0e4680de4e8dd81e7e02c66`**, the contract's MPC-derived hedge address. The same signature with `v` flipped recovered `0xd9cf…3608`, and with one bit of `s` flipped `0x3f5d…9860`. | [`hl-acceptance.json`](hl-acceptance.json), `npm run hl:acceptance` |
+| 1. Approved legs | The solver sent raw ETH legs on a $50,000 treasury. The contract recomputed delta, leverage and slippage against the immutable 200 / 300 / 25 policy. | [tx `2VWtrtEU…`](https://testnet.nearblocks.io/txns/2VWtrtEURh3QRF8iyVXq5xxaRprhcVVnwp7kYddxZvtR) |
+| 2. Contract-built action | One IOC **sell** of 16.0016 ETH at 2074.3 on Hyperliquid **testnet** market 4, not reduce-only (reference 2084.8). The contract checked the size against a per-market cap **in coins** (40 ETH per order, 80 per 24 h, at most 6 orders per 24 h), the one-hour `expiresAfter`, the $10 minimum order value, and the price band. | attestation #0 on the contract |
+| 3. Digest | The contract msgpack-encoded the action and computed `connectionId` (with `expiresAfter`) and the EIP-712 digest `ed00c7d7…ae498d` on-chain. It never accepts a digest from the solver. | `npm run verify` §11: *Recorded v3.1 digest == TS mirror rebuilt from the recorded request* |
+| 4. MPC sign | Only then did the contract itself call `v1.signer-prod.testnet.sign` (predecessor = contract, path `zerodelta/hedge/hyperliquid`) and store `{r, s, v}`. | receipt in the same tx |
+| 5. Exchange | `POST https://api.hyperliquid-testnet.xyz/exchange`. Hyperliquid recovered **`0xa74e082a…859f5e`**, the contract's MPC-derived hedge address. The same signature with `v` flipped recovered `0x1989…c074`, and with one bit of `s` flipped `0x54a3…c264`. | [`hl-acceptance.json`](hl-acceptance.json) |
 
-The binding chain is **approved legs → contract-built action → digest → MPC sign → exchange recovers the hedge address**. The proof that links them is verify §10's check that the recorded digest equals a fresh TypeScript rebuild from the recorded request, together with the live check that the contract's own view rebuilds the same digest today. Hyperliquid answered "User or API Wallet 0xef63…2c66 does not exist" because that address has no Hyperliquid account. No order was placed and nothing was filled. The *address* in that answer is the proof; the message alone is not (a broken signature gets the same message with a different address).
+What this shows, and what it does not: **signer recovery is proven.** Hyperliquid answered "User or API Wallet 0xa74e…9f5e does not exist" because that address has no Hyperliquid account. No order was placed or filled, and nothing ran on mainnet. The *address* in that answer is the proof; the message alone is not (a broken signature gets the same message with a different address). Hyperliquid remembers each (signer, nonce), so the recorded response cannot be reproduced by posting again: `npm run hl:acceptance` re-checks the **recorded** evidence offline, and `-- --live` reports a repeat post as `SPENT`, not as a pass.
 
-Also on-chain, all with no MPC receipt: [limit 3% from the reference → `PRICE_OUT_OF_BAND`](https://testnet.nearblocks.io/txns/EznaA4oyAhMxADoHTEToFEurf8JZKg3vs65tGYNfKbEq) · [byte-identical replay → `NONCE_ALREADY_USED`](https://testnet.nearblocks.io/txns/CRCZghG2vHL3xrSp27XuWM41SmtR6pNsKjE8FoYLLyjQ) · [solver calls the private callback → rejected](https://testnet.nearblocks.io/txns/8pL5kKgXZkry3WVXeA2ai4Ys6nzj5BgQDUbt5CBieoSh) · [deploy, init and delete the only key in one tx](https://testnet.nearblocks.io/txns/3ZazKuBgvi3mQaWout48RvujJ2cuA5FdhasvjqxUm5Vh).
+On-chain rejections, none with an MPC receipt: [the audit attack, limit = reference = 1/10 of the market price, rejected by the coin size cap (`ORDER_SIZE_CAP`)](https://testnet.nearblocks.io/txns/ibykqDGu99Y2kqW2xRW9kA3ot33r7usfDZTGzJ8GXHz) · [`expiresAfter` two hours ahead → `EXPIRY_TOO_FAR`](https://testnet.nearblocks.io/txns/GZqmFCkoSWzY1qQyykiEnimKDnHHH6dUwJ2GfgkwRzyX) · [byte-identical replay → `NONCE_ALREADY_USED`](https://testnet.nearblocks.io/txns/tQ5F63XgRNCbywsiwGoTZb4X46Js2bLJtQfwkpaj6Gj) · [solver calls the private callback → rejected](https://testnet.nearblocks.io/txns/5Y2e6cWEKhiLCGLJ8qeZ9PPWzc2tifyt5TZHQ2NTrzS8) · [create account](https://testnet.nearblocks.io/txns/5ebeGbFsGKEP6kdZdA9rWWwgnB6BQi3FQKCvF2GCuGDw) · [deploy, init and delete the only key in one tx](https://testnet.nearblocks.io/txns/9NbsEBfdBNbu8TkdGAhuJ3XmNxgyy4qM6wd9mabo7hRp).
+
+Contract storage is locked as stake (383,203 bytes = 3.83 NEAR after attestation #0, which added 1,151 bytes ≈ 0.0115 NEAR; the caller pays that, not the contract), the account was funded with 4.57 NEAR, and the 7 transactions are all in [`testnet-proof.json`](testnet-proof.json).
+
+### v3 was superseded by v3.1 after a pre-merge audit
+
+The first executable-signing deployment, [`zerodelta-guard-v3-a9c75f.testnet`](https://testnet.nearblocks.io/address/zerodelta-guard-v3-a9c75f.testnet), is still on testnet, locked, and its proof is kept unchanged (`proofs/testnet-proof.v3.json`, `proofs/hl-acceptance.v3.json`; §10 of the verifier still re-checks it). A pre-merge audit found a real flaw in it, so it is **not** what this project stands behind:
+
+- **High:** size = approved notional ÷ limit price, and the limit is only compared with a reference price the same solver supplies. A solver that sets limit and reference to a fraction of the market price gets an order many times the approved size approved. Confirmed with a read-only preview of the deployed contract: 2× the size at half price, 10× at a tenth. Nothing was exploited; no funds exist. Fixed in v3.1 by per-market caps in coins, which do not depend on any price.
+- **Medium:** no cumulative cap (approved hedges could stack) and no `expiresAfter` (a signature stayed usable at Hyperliquid for days). Fixed in v3.1 by a rolling-window size and order-count cap and a one-hour `expiresAfter` hashed into the order.
+- **Low:** a malformed MPC response left an attestation Pending, and the $10 Hyperliquid minimum order value was not enforced. Fixed in v3.1.
+
+The v3 proof's earlier "price 3% off the reference is rejected" transaction was an arithmetic check of the price band, not an attack proof. The real attack proof is the size-inflation rejection above. The audit also corrected wording: the proof shows signer recovery, not that the exchange would accept a funded order.
+
+**Residual risk in v3.1, stated plainly.** The caps bound the position, they do not remove the risk. A solver that halves the price still gets an order about twice the approved size (for example 720 SOL against a cap of 800) approved, because it fits under the cap. The reference price is still a trusted solver input. An on-chain oracle would close this; it was left out on purpose.
 
 **v2 proof on NEAR testnet**, kept as history (contract [`zerodelta-guard-fb604f.testnet`](https://testnet.nearblocks.io/address/zerodelta-guard-fb604f.testnet), 0 access keys; it signs a ZeroDelta order commitment, not an exchange order):
 [contract calls the MPC signer after its checks](https://testnet.nearblocks.io/txns/DZaDDUGQQLBkdZHiZxn95NtrmeUiGrd3a7af4hn37JfV) ·
@@ -30,10 +46,10 @@ Also on-chain, all with no MPC receipt: [limit 3% from the reference → `PRICE_
 | What is it? | Three cooperating, deterministic agents (scanner, confidential solver, risk guard) that find, size and check delta-neutral funding-carry trades across NEAR, Solana, Arbitrum, Bitcoin and Hyperliquid, plus a locked NEAR contract that is the only path to the treasury's signing key. |
 | What problem? | An AI agent with a treasury key can lose everything on one hallucinated or hijacked trade. Spending limits in the agent's own code don't help if the agent is the thing that's compromised. |
 | Why NEAR? | Chain Signatures derives a key per *calling account*, and a NEAR contract can be that caller and can delete all its access keys. So a smart contract, not a person or agent, holds signing authority, and its rules can't be changed. |
-| What is implemented? | Two locked contracts on testnet (v2: 33 Rust tests; v3: 44 Rust tests, incl. the official Hyperliquid SDK vectors and byte-for-byte parity with the TypeScript signer), real NEP-413 intents checked by `intents.near`, live 1Click and Hyperliquid data, the agent pipeline, and a harness that re-verifies everything (75 checks). |
-| What does the demo prove? | v3: a locked contract built a Hyperliquid testnet order from risk-checked legs and got NEAR's MPC network to sign it, and Hyperliquid recovered the contract's hedge address from that signature. v2: a lying solver, a rogue 10x trade and a replay all failed as real testnet transactions without producing an MPC signature. |
-| What is not implemented? | No funds move, no order fills, no mainnet. The TEE is simulated. The v3 reference price is a trusted solver input. See [Limitations](#limitations). |
-| How do I reproduce it? | `npm ci && npm test && npm run verify && npm run build`, plus `cargo test` in `contracts/risk-guard` and `contracts/risk-guard-v3`. See [Quick start](#quick-start). |
+| What is implemented? | Three locked contracts on testnet; v2 (33 Rust tests) drives the dashboard swarm, and v3.1 (55 Rust tests incl. the official Hyperliquid SDK vectors and parity with the TypeScript signer, plus 27/27 mutations caught) is the executable-signing path. v3 is superseded, real NEP-413 intents checked by `intents.near`, live 1Click and Hyperliquid data, the agent pipeline, and a harness that re-verifies everything (95 checks). |
+| What does the demo prove? | v3.1: a locked contract built a size-capped Hyperliquid testnet order from risk-checked legs and got NEAR's MPC network to sign it, Hyperliquid recovered the contract's hedge address from that signature (signer recovery), and a price-inflation attack was rejected on-chain. v2: a lying solver, a rogue 10x trade and a replay all failed as real testnet transactions without producing an MPC signature. |
+| What is not implemented? | No funds move, no order fills, no mainnet. The TEE is simulated. The reference price is a trusted solver input, so a halved price still fits under the coin caps. See [Limitations](#limitations). |
+| How do I reproduce it? | `npm ci && npm test && npm run verify && npm run build`, plus `cargo test` in `contracts/risk-guard`, `contracts/risk-guard-v3` and `contracts/risk-guard-v31`. See [Quick start](#quick-start). |
 
 ---
 
@@ -122,11 +138,12 @@ Results of the latest full run. [`verify-report.json`](verify-report.json) is th
 | Command | Result | Network |
 |---|---|---|
 | `npm run typecheck` | clean | none |
-| `npm test` | **113 tests**, 5 files: [`swarm.test.ts`](tests/swarm.test.ts), [`adversarial.test.ts`](tests/adversarial.test.ts), [`hyperliquid.test.ts`](tests/hyperliquid.test.ts), [`hlParity.test.ts`](tests/hlParity.test.ts), [`proofFile.test.ts`](tests/proofFile.test.ts) | none (fetch mocked where used) |
+| `npm test` | **118 tests**, 5 files: [`swarm.test.ts`](tests/swarm.test.ts), [`adversarial.test.ts`](tests/adversarial.test.ts), [`hyperliquid.test.ts`](tests/hyperliquid.test.ts), [`hlParity.test.ts`](tests/hlParity.test.ts), [`proofFile.test.ts`](tests/proofFile.test.ts) | none (fetch mocked where used) |
 | `cd contracts/risk-guard && cargo test` | **33 tests** (v2): 18 unit tests in `src/lib.rs` + 15 in [`tests/adversarial.rs`](contracts/risk-guard/tests/adversarial.rs) | none (Rust 1.81) |
 | `cd contracts/risk-guard-v3 && cargo test` | **44 tests** (v3): 6 unit, 5 official Hyperliquid SDK vectors, 5 TS parity (incl. 110 contract-level cases), 28 [adversarial](contracts/risk-guard-v3/tests/adversarial.rs) | none (Rust 1.81) |
-| `npm run verify:offline` | **29 pass, 36 skipped** (live-only) | none |
-| `npm run verify` | **75 checks**, read-only (§10 = v3) | public NEAR RPC, 1Click, Hyperliquid |
+| `cd contracts/risk-guard-v31 && cargo test` | **55 tests** (v3.1): 6 unit, 6 official Hyperliquid SDK vectors, 5 TS parity (134 contract-level cases), 38 [adversarial](contracts/risk-guard-v31/tests/adversarial.rs) (size caps, window, expiry, minimum value, malformed MPC response). [`MUTATION_RESULTS.md`](contracts/risk-guard-v31/MUTATION_RESULTS.md): **27/27** deliberate bugs caught (v3: [15/15](contracts/risk-guard-v3/MUTATION_RESULTS.md)); re-run with `npm run mutation:v31` | none (Rust 1.81) |
+| `npm run verify:offline` | **37 pass, 48 skipped** (live-only) | none |
+| `npm run verify` | **95 checks**, read-only (§10 = v3 history, §11 = v3.1) | public NEAR RPC, 1Click, Hyperliquid |
 | `npm run hl:acceptance` | `PASS`: the exchange recovers the hedge address; both corrupted copies recover other addresses | Hyperliquid **testnet** `/exchange` (POST, no funds) |
 | `npm run build` | clean | none |
 
@@ -168,8 +185,8 @@ Full threat model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). In short, b
 
 | Component | Status |
 |---|---|
-| Risk Guard **v3**: contract-built Hyperliquid order, on-chain EIP-712 digest, contract-originated MPC signature, lock, rejected attacks | **Real on NEAR testnet** (historical proof, re-verified live by verify §10) |
-| Hyperliquid order signature | **Executable Hyperliquid TESTNET order signature; the exchange recovered the contract's hedge address from it** (recorded response). No order filled: the address has no Hyperliquid account. Mainnet funds and a hardware TEE remain future work. |
+| Risk Guard **v3.1**: contract-built Hyperliquid order, coin size caps, `expiresAfter`, on-chain EIP-712 digest, contract-originated MPC signature, lock, rejected attacks | **Real on NEAR testnet** (historical proof, re-verified live by verify §11). v3 is superseded history (§10). |
+| Hyperliquid order signature | **Executable Hyperliquid TESTNET order signature; the exchange recovered the contract's hedge address from it** (recorded response; not re-runnable, because Hyperliquid remembers the nonce). No order filled: the address has no Hyperliquid account. Mainnet funds and a hardware TEE remain future work. |
 | Risk Guard v2 contract, policy, lock, 5 transactions, contract-originated MPC signature over an order commitment | **Real on NEAR testnet** (historical proof, re-verified live) |
 | `check_order_params` on every dashboard run | **Live read-only check** |
 | NEAR RPC, `intents.near` `simulate_intents` (mainnet), 1Click tokens and quotes, Hyperliquid funding | **Live** |
@@ -180,19 +197,19 @@ Full threat model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). In short, b
 
 ## Limitations
 
-- **v3 proves an executable Hyperliquid TESTNET order signature, validated by the exchange's signer recovery.** No funds move, no order is placed or filled, and nothing runs on mainnet. The hedge address has no Hyperliquid account; funding it would need the testnet faucet, which requires a mainnet deposit, so it was deliberately not done.
-- The v3 **reference price is a trusted solver input**: a compromised solver can move the limit and the reference together. Size always follows the approved notional, so a bad price cannot enlarge the position; an IOC sell at a bad price fills worse or not at all. An on-chain oracle would remove this trust.
+- **v3.1 proves an executable Hyperliquid TESTNET order signature, validated by the exchange's signer recovery.** No funds move, no order is placed or filled, and nothing runs on mainnet. The hedge address has no Hyperliquid account; funding it would need the testnet faucet, which requires a mainnet deposit, so it was deliberately not done.
+- The **reference price is a trusted solver input**: a compromised solver can move the limit and the reference together, which changes the size (notional ÷ limit). v3.1 bounds that with per-market caps in coins (per order and per 24 h) and an order-count cap, but a cheaper price that still fits under the cap is approved (about 2× the intended size at half price). An on-chain oracle would remove this trust.
 - Other trusted inputs (treasury, collateral, slippage), and v2's open findings F-1, F-2 (fixed in v3) and F-3, are in [SECURITY_MODEL.md](docs/SECURITY_MODEL.md).
 - The TEE enclave and attestation are software-simulated.
 - The v3 market table is the Hyperliquid testnet table, fetched and pinned at deploy (2026-11-11). The v2 dashboard's offline Hyperliquid module still uses mainnet indices from 2026-11-09; one live quote is scaled to all slices.
-- Dashboard clicks never create transactions. The v2 swarm demo still talks to the v2 contract; the v3 transactions were sent once by `scripts/testnet-setup-v3.ts`.
+- Dashboard clicks never create transactions. **The dashboard swarm demo runs against the v2 contract; v3.1 is the executable-signing path** and its transactions were sent once by `scripts/testnet-setup-v31.ts`. The v3.1 panel only reads.
 - Off-chain approved-nonce memory is per server instance; each contract's `last_nonce` is the real replay barrier.
 
 ## Future production pathway
 
 1. ~~A v3 contract that builds the Hyperliquid action and EIP-712 digest on-chain and signs *that*, with price bands and block-time nonces.~~ **Done on testnet** ([plan and status](docs/HYPERLIQUID_EXECUTION_PATH.md)).
 2. Make the MPC-derived key a funded Hyperliquid account (or have the contract sign an `approveAgent` for it), and land a tiny IOC fill on testnet.
-3. An authenticated price oracle for the band; read treasury balances on-chain instead of trusting the solver; DAO-controlled timelocked upgrades.
+3. An authenticated price oracle for the band (closes the residual half-price risk); read treasury balances on-chain instead of trusting the solver; DAO-controlled timelocked upgrades.
 4. Real TEE attestation (NEAR AI Cloud / Phala TDX) verified against vendor collateral.
 5. Funded execution on mainnet only after an external audit.
 
@@ -200,7 +217,7 @@ Full threat model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). In short, b
 
 Checked on 2026-11-11 against each project's public repository, site or demo post, found through the [official project directory](https://nearhackathon.com). Only claims those sources state are listed; projects whose sources could not be confirmed are omitted.
 
-| Project | What it does (from its own README or demo) | Difference from ZeroDelta v3 |
+| Project | What it does (from its own README or demo) | Difference from ZeroDelta v3.1 |
 |---|---|---|
 | [nearx402](https://github.com/svmacc/nearx402) | A spend-policy wallet for agents that pay x402 APIs: the contract verifies a Groth16 proof that a payment obeys a private policy before transferring a token on NEAR. Its README says the testnet contract is not locked, by choice. | It guards token transfers on NEAR. ZeroDelta's keyless contract is the signer for an order on an external exchange, and the exchange recovered its key. |
 | [Delivered](https://jobdelivered.xyz) ([demo post](https://x.com/Story91_/status/2119547336649269753)) | Escrow for agent work: a checklist is agreed before the reward locks, and a NEAR testnet contract pays only if every check passes. | Pays NEAR for checked work; it does not sign for another chain or venue. |
@@ -209,19 +226,20 @@ Checked on 2026-11-11 against each project's public repository, site or demo pos
 | [presign-guard](https://github.com/Fizzl13/presign-guard) | A pre-sign risk check (green / orange / red, paid per call over x402, with a free quick tier) for NEAR transactions and NEAR Intents messages, run before an agent signs. | The agent signs with its own key once the check passes. In ZeroDelta no agent holds a key: the keyless contract is the only path to it. |
 | [Claw Guard](https://github.com/metafrogmeme-droid/claw-guard-near) | The closest design: a NEAR contract checks owner rules per order (markets, caps, leverage), builds the Hyperliquid testnet or Base Sepolia payload itself and asks Chain Signatures to sign it; it also runs a small locked demo contract on mainnet. Its README (as of 2026-11-11) says no order has been sent to Hyperliquid testnet yet, the owner's key can change the rules, and locking the testnet contract's key is an owner decision. | Both contracts build the payload and are the signer. ZeroDelta v3 differs in three ways: its contract has **0 access keys and no rule setter**; it checks **delta neutrality and leverage recomputed from the full hedge legs**, plus a price band and Hyperliquid's tick rules; and **the exchange has recovered its key from one of its MPC signatures**, with negative controls. |
 
-## v2 → v3 (what changed during the hackathon)
+## v2 → v3 → v3.1 (what changed during the hackathon)
 
 All ZeroDelta code was written inside the hackathon window (first commit 2026-11-08; the window opened 2026-10-19), so there is no pre-hackathon baseline. v3 was built on the dedicated branch [`v3-executable-signing`](https://github.com/g4stein/zerodelta/tree/v3-executable-signing) from the safety tag `v2-before-v3`.
 
 - Full diff: [`v2-before-v3...hackathon-submission`](https://github.com/g4stein/zerodelta/compare/v2-before-v3...hackathon-submission) (the `hackathon-submission` tag is set on the final merge; until then see [`v2-before-v3...v3-executable-signing`](https://github.com/g4stein/zerodelta/compare/v2-before-v3...v3-executable-signing)).
 - New: [`contracts/risk-guard-v3/`](contracts/risk-guard-v3/) (contract, integer-only Hyperliquid encoder and digest, 44 tests), [`src/lib/hyperliquid/fixedPoint.ts`](src/lib/hyperliquid/fixedPoint.ts) and [`v3Hedge.ts`](src/lib/hyperliquid/v3Hedge.ts) (TS mirror), [`scripts/testnet-setup-v3.ts`](scripts/testnet-setup-v3.ts), [`scripts/hl-acceptance.ts`](scripts/hl-acceptance.ts), verify §10, the dashboard's v3 panel.
-- Unchanged: the v2 contract, its WASM and its five transactions. `testnet-proof.json` now has v3 at the top and v2 under `previousDeployment`; [`proofs/testnet-proof.v2.json`](proofs/testnet-proof.v2.json) is the original v2 file, byte for byte (sha256 `99a0feb3…`, checked in CI).
+- v3.1 (after the pre-merge audit): [`contracts/risk-guard-v31/`](contracts/risk-guard-v31/) (coin size caps, rolling window, `expiresAfter`, $10 minimum, safe MPC callback), [`v31Hedge.ts`](src/lib/hyperliquid/v31Hedge.ts), [`scripts/testnet-setup-v31.ts`](scripts/testnet-setup-v31.ts), [`contracts/mutation-test.py`](contracts/mutation-test.py), verify §11. The off-chain checker now compares both notionals, and `hl:acceptance` no longer overwrites recorded evidence.
+- Unchanged: the v2 contract, its WASM and its five transactions. `testnet-proof.json` now has v3.1 at the top, v3 under `previousDeployment` and v2 inside that (v3 byte-identical in [`proofs/testnet-proof.v3.json`](proofs/testnet-proof.v3.json)); [`proofs/testnet-proof.v2.json`](proofs/testnet-proof.v2.json) is the original v2 file, byte for byte (sha256 `99a0feb3…`, checked in CI).
 
 ## Hackathon track relevance
 
 | Track | Fit |
 |---|---|
-| **06 / SEC AI Security & Defense** (primary) | Policy engine enforced by a keyless contract that builds and signs the executable order itself, replay protection, guard-gated Chain Signatures, public attack transactions, exchange-validated signature. |
+| **06 / SEC AI Security & Defense** (primary) | Policy engine enforced by a keyless contract that builds and signs the executable order itself, replay protection, guard-gated Chain Signatures, public attack transactions, signer-recovery-proven signature. |
 | 01 / DFI Unstoppable DeFi | Funding-carry strategy over NEAR Intents and Chain Signatures; the perp hedge is a Hyperliquid order signed via Chain Signatures (testnet, not filled). |
 | 05 / SWM AI Swarms | Three specialised agents; scanner and solver negotiate slice size from live feedback; the guard checks both. |
 | 04 / BUS Autonomous Business | Treasury that ranks markets, sizes itself, says NO_TRADE when nothing pays, and leaves an audit trail. |
