@@ -16,3 +16,4 @@ contracts/risk-guard-v3/target/
 verify-report.local.json
 verify-report.offline.json
 verify-report.live.json
+hl-acceptance.local.json

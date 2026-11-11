@@ -1,0 +1,137 @@
+{
+  "purpose": "Hyperliquid TESTNET accepts the NEAR MPC signature obtained by the locked Risk Guard v3 contract as a signature by the contract's hedge key",
+  "endpoint": "https://api.hyperliquid-testnet.xyz/exchange",
+  "ranAt": "2026-11-11T15:27:06.786Z",
+  "contract": "zerodelta-guard-v3-a9c75f.testnet",
+  "signingTransaction": "2SAhjj5Xju19NA3t9KsjTGAoQp5RWyhTbwEpqC6wUdkF",
+  "hedgeKeyPath": "zerodelta/hedge/hyperliquid",
+  "expectedAddress": "0xef639b571185dc6ee0e4680de4e8dd81e7e02c66",
+  "digestHex": "20765c12877d7bba598bbb84ea42d1157e23bd15f4b0d6c14940f449258ee02f",
+  "nonce": 1794409521698,
+  "nonceNote": "Recovery does not depend on nonce age; the recorded request is posted unchanged.",
+  "results": [
+    {
+      "case": "real MPC signature",
+      "role": "real",
+      "sentAt": "2026-11-11T15:27:06.117Z",
+      "request": {
+        "action": {
+          "type": "order",
+          "orders": [
+            {
+              "a": 0,
+              "b": false,
+              "p": "91.961",
+              "s": "361.84",
+              "r": false,
+              "t": {
+                "limit": {
+                  "tif": "Ioc"
+                }
+              }
+            }
+          ],
+          "grouping": "na"
+        },
+        "nonce": 1794409521698,
+        "signature": {
+          "r": "0xa1cd22990c8fce603eef02f0ee2f9eb35ccb466ee0482da2164888bba5a933d3",
+          "s": "0x36ea3e12f35ebd8379d20cc749ce7581b15520008e40e14a5e751abb7ca3fee0",
+          "v": 28
+        }
+      },
+      "http": 200,
+      "rawResponse": "{\"status\":\"err\",\"response\":\"User or API Wallet 0xef639b571185dc6ee0e4680de4e8dd81e7e02c66 does not exist.\"}",
+      "networkError": null,
+      "recoveredAddress": "0xef639b571185dc6ee0e4680de4e8dd81e7e02c66",
+      "classification": "PASS",
+      "expectedForThisCase": "PASS (recovers the hedge address)",
+      "ok": true,
+      "locallyRecoveredAddress": "0xef639b571185dc6ee0e4680de4e8dd81e7e02c66",
+      "hyperliquidAgreesWithLocalRecovery": true
+    },
+    {
+      "case": "control: v flipped",
+      "role": "control",
+      "sentAt": "2026-11-11T15:27:06.333Z",
+      "request": {
+        "action": {
+          "type": "order",
+          "orders": [
+            {
+              "a": 0,
+              "b": false,
+              "p": "91.961",
+              "s": "361.84",
+              "r": false,
+              "t": {
+                "limit": {
+                  "tif": "Ioc"
+                }
+              }
+            }
+          ],
+          "grouping": "na"
+        },
+        "nonce": 1794409521698,
+        "signature": {
+          "r": "0xa1cd22990c8fce603eef02f0ee2f9eb35ccb466ee0482da2164888bba5a933d3",
+          "s": "0x36ea3e12f35ebd8379d20cc749ce7581b15520008e40e14a5e751abb7ca3fee0",
+          "v": 27
+        }
+      },
+      "http": 200,
+      "rawResponse": "{\"status\":\"err\",\"response\":\"User or API Wallet 0xd9cf502b9ce06090c94da764e15446fbcd0e3608 does not exist.\"}",
+      "networkError": null,
+      "recoveredAddress": "0xd9cf502b9ce06090c94da764e15446fbcd0e3608",
+      "classification": "FAIL",
+      "expectedForThisCase": "FAIL (recovers a different address)",
+      "ok": true,
+      "locallyRecoveredAddress": "0xd9cf502b9ce06090c94da764e15446fbcd0e3608",
+      "hyperliquidAgreesWithLocalRecovery": true
+    },
+    {
+      "case": "control: lowest bit of s flipped",
+      "role": "control",
+      "sentAt": "2026-11-11T15:27:06.505Z",
+      "request": {
+        "action": {
+          "type": "order",
+          "orders": [
+            {
+              "a": 0,
+              "b": false,
+              "p": "91.961",
+              "s": "361.84",
+              "r": false,
+              "t": {
+                "limit": {
+                  "tif": "Ioc"
+                }
+              }
+            }
+          ],
+          "grouping": "na"
+        },
+        "nonce": 1794409521698,
+        "signature": {
+          "r": "0xa1cd22990c8fce603eef02f0ee2f9eb35ccb466ee0482da2164888bba5a933d3",
+          "s": "0x36ea3e12f35ebd8379d20cc749ce7581b15520008e40e14a5e751abb7ca3fee1",
+          "v": 28
+        }
+      },
+      "http": 200,
+      "rawResponse": "{\"status\":\"err\",\"response\":\"User or API Wallet 0x3f5dc82cce54c4bd60f12c5d1263ddb13a189860 does not exist.\"}",
+      "networkError": null,
+      "recoveredAddress": "0x3f5dc82cce54c4bd60f12c5d1263ddb13a189860",
+      "classification": "FAIL",
+      "expectedForThisCase": "FAIL (recovers a different address)",
+      "ok": true,
+      "locallyRecoveredAddress": "0x3f5dc82cce54c4bd60f12c5d1263ddb13a189860",
+      "hyperliquidAgreesWithLocalRecovery": true
+    }
+  ],
+  "allRecoveredAddressesDistinct": true,
+  "verdict": "PASS",
+  "meaning": "Hyperliquid recovered exactly the contract's MPC-derived hedge address from the real signature, and different addresses from both corrupted copies. The signature is exchange-valid; the order was not placed only because that address has no Hyperliquid account."
+}
