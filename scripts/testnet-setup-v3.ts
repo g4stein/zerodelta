@@ -21,10 +21,8 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { keccak_256 } from "@noble/hashes/sha3.js";
-import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
-import { secp256k1 } from "@noble/curves/secp256k1.js";
 import bs58 from "bs58";
+import { evmAddressFromUncompressed, recoverAddress } from "../src/lib/hyperliquid/recover";
 import { Account, JsonRpcProvider, KeyPair, actions, type KeyPairString } from "near-api-js";
 import { HYPERLIQUID_PERPS_TESTNET } from "../src/lib/hyperliquid/exchangeSigning";
 import { roundDownToValidPerpPrice, toE8, wireE8 } from "../src/lib/hyperliquid/fixedPoint";
@@ -165,15 +163,9 @@ async function requireSolverBalanceEarly(solverId: string, funding: bigint) {
   if (bal < funding + proofTxs) throw new Error(`ABORT: solver balance ${near(bal)} < ${near(funding + proofTxs)}`);
 }
 
-const evmAddress = (uncompressed: Uint8Array) => `0x${bytesToHex(keccak_256(uncompressed.slice(1)).slice(-20))}`;
-
-/** Address recovered from a Hyperliquid-style {r, s, v} over `digestHex`. */
-export function recoverAddress(digestHex: string, sig: { r: string; s: string; v: number }): string {
-  const r = hexToBytes(sig.r.replace(/^0x/, "").padStart(64, "0"));
-  const s = hexToBytes(sig.s.replace(/^0x/, "").padStart(64, "0"));
-  const pub = secp256k1.recoverPublicKey(new Uint8Array([sig.v - 27, ...r, ...s]), hexToBytes(digestHex), { prehash: false });
-  return evmAddress(secp256k1.Point.fromBytes(pub).toBytes(false));
-}
+const evmAddress = evmAddressFromUncompressed;
+/** Address recovered from a Hyperliquid-style {r, s, v} over `digestHex` (re-exported for the scripts and tests). */
+export { recoverAddress };
 
 async function main() {
   const state = loadState();

@@ -32,7 +32,9 @@ import {
 } from "lucide-react";
 import type { LiveTelemetry as BaseTelemetry } from "@/lib/near/rpcClient";
 import type { OnchainProofStatus, TestnetProof } from "@/lib/near/riskGuardContract";
-import { V2_PROOF_JSON } from "@/lib/near/proofFile";
+import type { V3OnchainStatus } from "@/lib/near/riskGuardV3";
+import { V3ExecutableProof } from "./V3ExecutableProof";
+import { V2_PROOF_JSON, V3_PROOF_JSON } from "@/lib/near/proofFile";
 import { computeOrderMetrics, type OrderParams } from "@/lib/near/orderCommitment";
 
 /** Public v2 proof data, bundled statically so the links are in the very first HTML response. */
@@ -40,6 +42,7 @@ const PROOF = V2_PROOF_JSON as unknown as TestnetProof;
 const NEARBLOCKS = "https://testnet.nearblocks.io";
 const nbAccount = (id: string) => `${NEARBLOCKS}/address/${id}`;
 const proofTx = (kind: string) => PROOF.transactions.find((t) => t.kind === kind);
+const V3_TX = (kind: string) => ((V3_PROOF_JSON as any)?.transactions as { kind: string; explorerUrl: string }[] | undefined)?.find((t) => t.kind === kind)?.explorerUrl;
 import type { SwarmRun } from "@/lib/swarm/orchestrator";
 import type { PairSelection, SwarmMode } from "@/lib/swarm/types";
 import { Badge, Card, CodeBlock, KV, cx, short, usd } from "@/components/ui";
@@ -55,7 +58,7 @@ const PAIR_OPTIONS: { id: PairSelection; label: string }[] = [
 const TRACKS = ["06 / SEC", "01 / DFI", "05 / SWM", "04 / BUS", "07 / AGT", "03 / PRV"];
 
 type ProofTab = "intent" | "mpc" | "attestation" | "onchain" | "audit";
-type LiveTelemetry = BaseTelemetry & { onchain?: OnchainProofStatus };
+type LiveTelemetry = BaseTelemetry & { onchain?: OnchainProofStatus; onchainV3?: V3OnchainStatus | null };
 
 export default function Dashboard() {
   const [telemetry, setTelemetry] = useState<LiveTelemetry | null>(null);
@@ -122,6 +125,7 @@ export default function Dashboard() {
     <main className="mx-auto max-w-[1500px] px-4 pb-16 pt-6 sm:px-6" aria-label="ZeroDelta dashboard">
       <Header />
       <TelemetryBar telemetry={telemetry} loading={telemetryLoading} onRefresh={() => void loadTelemetry()} />
+      <V3ExecutableProof onchainV3={telemetry?.onchainV3} />
 
       <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
         <div className="min-w-0 space-y-6">
@@ -679,8 +683,11 @@ function HonestyPanel() {
     { label: "Replayed order rejected (nonce)", status: "Failed tx (on purpose)", tone: "cyan", href: tx("REPLAY_REJECTED") },
     { label: "Contract recomputes every dashboard run", status: "Live view call", tone: "emerald" },
     { label: "Multi-asset ranking + slice negotiation", status: "Live quotes", tone: "emerald" },
+    { label: "v3 contract builds the Hyperliquid order + EIP-712 digest, then calls MPC sign", status: "Testnet tx", tone: "cyan", href: V3_TX("APPROVED_EXECUTABLE_HEDGE_SIGNED") },
+    { label: "Hyperliquid testnet recovers the contract's hedge address from that signature", status: "Recorded exchange response", tone: "cyan" },
     { label: "TEE enclave + attestation (prototype boundary)", status: "Software-simulated", tone: "amber" },
-    { label: "Real fills / funds movement", status: "None (dry run)", tone: "amber" },
+    { label: "Reference price for the v3 price band", status: "Trusted solver input", tone: "amber" },
+    { label: "Real fills / funds movement / mainnet", status: "None", tone: "amber" },
   ];
   return (
     <Card className="p-5">

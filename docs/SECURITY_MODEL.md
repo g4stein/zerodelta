@@ -1,5 +1,7 @@
 # ZeroDelta security model
 
+Two contracts are deployed and locked on NEAR testnet. **§7 covers Risk Guard v3** ([`zerodelta-guard-v3-a9c75f.testnet`](https://testnet.nearblocks.io/address/zerodelta-guard-v3-a9c75f.testnet)), which builds and signs the executable Hyperliquid order and fixes v2's findings F-1 and F-2. §1–§6 describe v2, which the dashboard's swarm demo still talks to.
+
 This document describes what the deployed Risk Guard v2 contract ([`zerodelta-guard-fb604f.testnet`](https://testnet.nearblocks.io/address/zerodelta-guard-fb604f.testnet), source [`contracts/risk-guard/src/lib.rs`](../contracts/risk-guard/src/lib.rs)) and the off-chain swarm enforce, what they trust, and what is still open. Every "enforced" item points at the code and the test that checks it.
 
 ## 1. What is protected
@@ -109,3 +111,45 @@ Other limits:
 - attestation #0 stores the same decision hash, payload and signature, and the signature recovers to the key derived for the contract.
 
 See [VERIFICATION.md](VERIFICATION.md) for how to run it.
+
+## 7. Risk Guard v3
+
+Contract [`zerodelta-guard-v3-a9c75f.testnet`](https://testnet.nearblocks.io/address/zerodelta-guard-v3-a9c75f.testnet), source [`contracts/risk-guard-v3/src/lib.rs`](../contracts/risk-guard-v3/src/lib.rs), 0 access keys. Hedge key: `derived_public_key(zerodelta/hedge/hyperliquid, zerodelta-guard-v3-a9c75f.testnet)` = EVM address `0xef639b571185dc6ee0e4680de4e8dd81e7e02c66`.
+
+### 7.1 What the v3 key signs, and what it cannot
+
+The contract signs only the EIP-712 phantom-agent digest of an order **it built itself**: one IOC **sell** on the market index stored for the asset in the deploy-time Hyperliquid testnet table, not reduce-only, with size = approved perp short ÷ limit in whole lots. It computes the msgpack encoding, `connectionId = keccak256(msgpack(action) ‖ nonce ‖ 0x00)` and the digest on-chain. A solver-supplied `expected_digest_hex` is only compared (a mismatch rejects with `PAYLOAD_COMMITMENT_MISMATCH`); it is never signed.
+
+So the hedge key **can sign orders only**. The code has no path to sign a Hyperliquid withdrawal, a USD transfer, an `approveAgent`, a vault action, or an EVM transaction, so it cannot move funds out of the hedge account even if the solver is compromised. Hyperliquid testnet recovered this key's address from one such signature ([`hl-acceptance.json`](../hl-acceptance.json)).
+
+### 7.2 What v3 enforces on every `sign_executable_hedge`
+
+Each rejection has a Rust test in [`tests/adversarial.rs`](../contracts/risk-guard-v3/tests/adversarial.rs) that also checks no MPC receipt was created and the nonce wasn't consumed.
+
+| Check | Rejection |
+|---|---|
+| Caller is the registered solver; four evidence hashes are 64 lowercase hex | `UNAUTHORIZED_SOLVER`, `MALFORMED_HASH` |
+| Symbol is in the stored per-network market table | `UNKNOWN_MARKET`, `INVALID_ORDER` |
+| v2's risk math on the raw legs; the hedge has a perp short and no perp long | `DELTA_NEUTRALITY`, `LEVERAGE_CEILING`, `SLIPPAGE_CEILING`, `INVALID_ORDER` |
+| Limit within `price_band_bps` (100) of the reference; Hyperliquid price rules (integer, or ≤ 5 significant figures and ≤ 6 − szDecimals decimals) | `PRICE_OUT_OF_BAND`, `NO_REFERENCE_PRICE`, `PRICE_ZERO`, `PRICE_TOO_MANY_SIG_FIGS`, `PRICE_TOO_MANY_DECIMALS` |
+| Size × limit within `notional_band_bps` (50) of the approved perp short; at least one lot; no u64 overflow | `NOTIONAL_DRIFT`, `SIZE_ZERO`, `SIZE_OVERFLOW` |
+| Nonce in milliseconds: `last_nonce < nonce`, `block_ms − 300 000 ≤ nonce ≤ block_ms + 60 000`, `block_ms = block_timestamp / 10⁶` | `NONCE_ALREADY_USED`, `STALE_ORDER`, `FUTURE_NONCE` |
+| Supplied digest assertion, if any, equals the contract's digest | `PAYLOAD_COMMITMENT_MISMATCH` |
+| Caller attaches the attestation's storage + 384 bytes for the signature + 1 yocto MPC deposit; excess refunded | `INSUFFICIENT_DEPOSIT` |
+| ≥ ~300 Tgas when signing | `INSUFFICIENT_GAS` |
+| Only the contract may deliver the MPC result | `Method on_mpc_signed is private` (checked on-chain, [tx](https://testnet.nearblocks.io/txns/8pL5kKgXZkry3WVXeA2ai4Ys6nzj5BgQDUbt5CBieoSh)) |
+
+Fifteen deliberate contract bugs (signing the solver's digest, a buy instead of a sell, sizing from the reference, no band, no storage charge, `v = rid + 28`, the mainnet source on testnet, and others) each made at least one test fail.
+
+### 7.3 v2 findings in v3
+
+- **F-1 nonce exhaustion: fixed.** A `u64::MAX` nonce is `FUTURE_NONCE`, so it can't freeze the contract (`u64_max_nonce_cannot_freeze_the_contract_f1`). A v2-style microsecond nonce is also rejected as future-dated.
+- **F-2 storage exhaustion: fixed.** Each accepted request pays for its own storage; on-chain, attestation #0 cost the solver 1,230 bytes = 0.0123 NEAR, and the contract's balance pays nothing (`the_caller_pays_storage_and_the_exact_required_deposit_is_accepted_f2`).
+- **F-3 no key rotation or pause: unchanged, by design.** The v3 account is locked too.
+
+### 7.4 Trusted inputs in v3
+
+- **Reference price (new).** `reference_px_e8` comes from the solver. A compromised solver can move the limit and the reference together, so the band only bounds the distance from the solver's own reference, not from the real market. Because size = approved notional ÷ limit, a bad price cannot enlarge the position beyond the risk-approved notional; an IOC sell at a bad price fills worse or not at all. An authenticated on-chain oracle would remove this trust.
+- **Treasury, collateral, slippage**: as in v2 (§5).
+- **Market table**: fetched from Hyperliquid testnet `meta` at deploy, compared with the pinned table (the deploy aborts on any difference) and stored immutably. If Hyperliquid re-indexed its markets, the contract would sign orders for the old index; a new deployment would be needed.
+- **No funded account.** The hedge address has no Hyperliquid account, so no order can execute. Turning the key into a funded account or agent wallet is future work.
