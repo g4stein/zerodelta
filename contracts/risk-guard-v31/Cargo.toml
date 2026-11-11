@@ -1,0 +1,27 @@
+[package]
+name = "zerodelta-risk-guard-v31"
+version = "3.1.0"
+edition = "2021"
+rust-version = "1.81"
+description = "ZeroDelta Risk Guard v3.1: builds the executable Hyperliquid order on-chain from the risk-approved parameters and has NEAR Chain Signatures sign its EIP-712 digest."
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "=5.5.0"
+
+[dev-dependencies]
+near-sdk = { version = "=5.5.0", features = ["unit-testing"] }
+# Test-only: deterministic RFC 6979 signing to reproduce the official SDK signature vectors.
+secp256k1 = { version = "=0.27.0", features = ["recovery"] }
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+overflow-checks = true

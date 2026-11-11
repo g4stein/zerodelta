@@ -10,7 +10,7 @@
  *   derived for the contract account.
  */
 import { secp256k1 } from "@noble/curves/secp256k1.js";
-import proofJson from "../../../testnet-proof.json";
+import { V2_PROOF_JSON } from "./proofFile";
 import { fetchWithTimeout, nearRpc, viewFunction } from "./rpcClient";
 import { fromBase58, hexToBytes } from "../crypto/encoding";
 import { MPC_SIGNER_CONTRACT, RISK_GUARD_CONTRACT_ID } from "./deployment";
@@ -100,7 +100,8 @@ export interface TestnetProof {
   previousDeployment?: { version: number; contract: string; solver: string; note: string; transactions: string[] };
 }
 
-export const TESTNET_PROOF = proofJson as unknown as TestnetProof;
+/** The v2 proof (now under `previousDeployment` in testnet-proof.json; see proofFile.ts). */
+export const TESTNET_PROOF = V2_PROOF_JSON as unknown as TestnetProof;
 export const RISK_GUARD_CONTRACT = RISK_GUARD_CONTRACT_ID;
 export const EXPECTED_ONCHAIN_POLICY: OnchainPolicy = { max_delta_bps: 200, max_leverage_x100: 300, max_slippage_bps: 25 };
 

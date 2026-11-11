@@ -1,175 +1,880 @@
 {
   "network": "testnet",
-  "version": 2,
-  "createdAt": "2026-11-09T19:24:48.023Z",
+  "version": 3.1,
+  "release": "v3.1",
+  "createdAt": "2026-11-11T17:44:43.347Z",
   "contract": {
-    "accountId": "zerodelta-guard-fb604f.testnet",
-    "codeHash": "6VqcNeQLfWWN7XyFHbvhZJoDoZLNQMEsgRpapn1jJEqk",
-    "wasmPath": "contracts/risk-guard/res/zerodelta_risk_guard.wasm",
-    "wasmSha256Hex": "51ada920b44f5653e8a9293ebac08fbeee3f2d280d77efacfede33b68ca71ce7",
-    "sourcePath": "contracts/risk-guard/src/lib.rs",
+    "accountId": "zerodelta-guard-v31-c6e71c.testnet",
+    "codeHash": "9mWZHNqr9ySkL65xPyyVujCTWiDGhkowRgV9mUFXBMuw",
+    "wasmPath": "contracts/risk-guard-v31/res/zerodelta_risk_guard_v31.wasm",
+    "wasmBytes": 381562,
+    "wasmSha256Hex": "82447883708aaf5d64db5c8045b49d2ef71a591340105c24d78f58f2b51f61be",
+    "sourcePath": "contracts/risk-guard-v31/src/lib.rs",
     "policy": {
       "max_delta_bps": 200,
       "max_leverage_x100": 300,
-      "max_slippage_bps": 25
+      "max_slippage_bps": 25,
+      "price_band_bps": 100,
+      "notional_band_bps": 50,
+      "max_nonce_age_ms": 300000,
+      "max_nonce_future_ms": 60000,
+      "max_expiry_ms": 3600000,
+      "window_ms": 86400000,
+      "max_orders_per_window": 6
     },
+    "hlNetwork": "testnet",
+    "markets": [
+      {
+        "symbol": "BTC",
+        "asset": 3,
+        "sz_decimals": 5,
+        "max_order_size_e8": 100000000,
+        "window_size_cap_e8": 200000000
+      },
+      {
+        "symbol": "ETH",
+        "asset": 4,
+        "sz_decimals": 4,
+        "max_order_size_e8": 4000000000,
+        "window_size_cap_e8": 8000000000
+      },
+      {
+        "symbol": "SOL",
+        "asset": 0,
+        "sz_decimals": 2,
+        "max_order_size_e8": 80000000000,
+        "window_size_cap_e8": 160000000000
+      },
+      {
+        "symbol": "NEAR",
+        "asset": 54,
+        "sz_decimals": 1,
+        "max_order_size_e8": 2000000000000,
+        "window_size_cap_e8": 4000000000000
+      }
+    ],
+    "marketsFetchedAt": "2026-11-11T17:43:33.763Z",
+    "marketsSource": "https://api.hyperliquid-testnet.xyz/info {\"type\":\"meta\"} (live table == pinned HYPERLIQUID_PERPS_TESTNET)",
     "mpcSignerContract": "v1.signer-prod.testnet",
-    "mpcPath": "zerodelta/hedge/arbitrum",
-    "locked": true
+    "mpcPath": "zerodelta/hedge/hyperliquid",
+    "locked": true,
+    "accessKeys": 0,
+    "storage": {
+      "storageAmountPerByteYocto": "10000000000000000000",
+      "wasmStakeYocto": "3815620000000000000000000",
+      "fundedYocto": "4565620000000000000000000",
+      "storageUsageBytes": 383203,
+      "stakeChargedYocto": "3832030000000000000000000"
+    },
+    "config": {
+      "solver": "zerodelta-solver-fb604f.testnet",
+      "policy": {
+        "max_delta_bps": 200,
+        "max_leverage_x100": 300,
+        "max_slippage_bps": 25,
+        "price_band_bps": 100,
+        "notional_band_bps": 50,
+        "max_nonce_age_ms": 300000,
+        "max_nonce_future_ms": 60000,
+        "max_expiry_ms": 3600000,
+        "window_ms": 86400000,
+        "max_orders_per_window": 6
+      },
+      "hl_network": "testnet",
+      "markets": [
+        {
+          "symbol": "BTC",
+          "asset": 3,
+          "sz_decimals": 5,
+          "max_order_size_e8": 100000000,
+          "window_size_cap_e8": 200000000
+        },
+        {
+          "symbol": "ETH",
+          "asset": 4,
+          "sz_decimals": 4,
+          "max_order_size_e8": 4000000000,
+          "window_size_cap_e8": 8000000000
+        },
+        {
+          "symbol": "SOL",
+          "asset": 0,
+          "sz_decimals": 2,
+          "max_order_size_e8": 80000000000,
+          "window_size_cap_e8": 160000000000
+        },
+        {
+          "symbol": "NEAR",
+          "asset": 54,
+          "sz_decimals": 1,
+          "max_order_size_e8": 2000000000000,
+          "window_size_cap_e8": 4000000000000
+        }
+      ],
+      "markets_fetched_at": "2026-11-11T17:43:33.763Z",
+      "mpc_signer_contract": "v1.signer-prod.testnet",
+      "mpc_path": "zerodelta/hedge/hyperliquid",
+      "mpc_deposit": "1",
+      "last_nonce": 1794419058678,
+      "attestation_count": 1,
+      "version": "3.1.0"
+    }
   },
   "accounts": {
-    "guard": "zerodelta-guard-fb604f.testnet",
+    "guard": "zerodelta-guard-v31-c6e71c.testnet",
     "solver": "zerodelta-solver-fb604f.testnet"
   },
-  "approvedOrder": {
+  "hedgeKey": {
+    "path": "zerodelta/hedge/hyperliquid",
+    "predecessor": "zerodelta-guard-v31-c6e71c.testnet",
+    "derivedPublicKey": "secp256k1:4To8bdBfSMudwzN3vy4cEfW4znYMn65PAMvumhrKt7WeWG2pmBHT3UEfXmLLriTKcRt2MAMBN6NufCqDQazTBQot",
+    "evmAddress": "0xa74e082a55e862845d510f8d609d315afd859f5e",
+    "note": "Hyperliquid must recover THIS address from the signature. It differs from v3's key (a different contract is the MPC caller) and from v2's zerodelta/hedge/arbitrum key."
+  },
+  "approvedHedge": {
     "index": 0,
-    "runId": "c8e07b4dcf36",
-    "order": {
-      "asset_symbol": "NEAR",
-      "treasury_usd_cents": 5000000,
-      "spot_long_usd_cents": 3327335,
-      "perp_short_usd_cents": 3327335,
-      "perp_long_usd_cents": 0,
-      "collateral_usd_cents": 5000000,
-      "quoted_slippage_bps": 10,
-      "nonce": 1794252225913000
+    "args": {
+      "request": {
+        "run_id": "bb8190ed1472",
+        "order": {
+          "asset_symbol": "ETH",
+          "treasury_usd_cents": 5000000,
+          "spot_long_usd_cents": 3319221,
+          "perp_short_usd_cents": 3319221,
+          "perp_long_usd_cents": 0,
+          "collateral_usd_cents": 5000000,
+          "quoted_slippage_bps": 3,
+          "nonce": 1794419058678
+        },
+        "limit_px_e8": 207430000000,
+        "reference_px_e8": 208480000000,
+        "expires_after_ms": 1794421758678,
+        "expected_digest_hex": "ed00c7d7f4e5ffc7f74b741a20321f6a5866b194391f94e01793c1c4ebae498d",
+        "plan_hash": "be76bcb5364e79bf161ec9f8f9f3dae704d25bd8d4fdc739d861a6a6399d8285",
+        "intent_payload_hash": "c1dfd3a0a84cd2939140dc4cc4ba619b1be32e65329883db5ad698d0a88d51b1",
+        "attestation_report_hash": "203e28dd94967dec6faf282d456b158bc7ba287fe4322ec83e0ad01db429680f",
+        "decision_hash": "e6ec41a1cae10f8c05bc31c6412f79856997c2ecfd66ed987bd6c0dd830d0b07"
+      },
+      "request_mpc_sign": true
     },
-    "hedgeOrderPayloadHex": "731bc5e95dd15c01ae7046cb734d49a91578c2bc428d257bca0a989b49efab2d",
-    "decisionHash": "9d9e38bdcce135964d54469acd85cefd055f5de6f1ddc902eac028e5bcf9c6ab",
-    "planHash": "466add100be6975fa1d1384fcc817b9dc57ea8e9741536c60daa57f102b18c8c",
-    "intentPayloadHash": "cae135173955588967f885d4cb3eb6c0c311dcf14b9aebaa2619287ea9523212",
-    "attestationReportHash": "6975a6665200fafb931a74561c2ea2cfa22c84fd5188e7a3cf8775a361d2e710",
-    "contractMetrics": {
-      "net_delta_bps": 0,
-      "leverage_x100": 134
-    }
+    "referencePx": "2084.8",
+    "limitPx": "2074.3",
+    "expiresAfterMs": 1794421758678,
+    "swarmRecommendation": "TRADE",
+    "demoOverride": false,
+    "market": {
+      "symbol": "ETH",
+      "asset": 4,
+      "sz_decimals": 4,
+      "max_order_size_e8": 4000000000,
+      "window_size_cap_e8": 8000000000
+    },
+    "sizeE8": 1600160000,
+    "connectionIdHex": "73bb4129a22114a120b089e78cf430d50a92b62a32d56964f61733e913c6f09b",
+    "digestHex": "ed00c7d7f4e5ffc7f74b741a20321f6a5866b194391f94e01793c1c4ebae498d",
+    "commitmentHex": "457558129680c4373f15eaa893897098f2c52bc607cff522bffc37c3d7d70261",
+    "digestMatchesTsMirror": true,
+    "exchangeRequest": {
+      "action": {
+        "type": "order",
+        "orders": [
+          {
+            "a": 4,
+            "b": false,
+            "p": "2074.3",
+            "s": "16.0016",
+            "r": false,
+            "t": {
+              "limit": {
+                "tif": "Ioc"
+              }
+            }
+          }
+        ],
+        "grouping": "na"
+      },
+      "nonce": 1794419058678,
+      "expiresAfter": 1794421758678,
+      "signature": {
+        "r": "0x4c677bab68edd58637b4bd9ba76f22ab60fb9caa0fb5d7097ea64129210b5fd1",
+        "s": "0x727e3e5cff569008aa10b56c06570f61c15c6105c0793001062cac9bf5866c60",
+        "v": 27
+      },
+      "vaultAddress": null
+    },
+    "recoveredAddressOffline": "0xa74e082a55e862845d510f8d609d315afd859f5e"
   },
-  "rogueAttempt": {
-    "order": {
-      "asset_symbol": "NEAR",
-      "treasury_usd_cents": 5000000,
-      "spot_long_usd_cents": 4984637,
-      "perp_short_usd_cents": 0,
-      "perp_long_usd_cents": 45000000,
-      "collateral_usd_cents": 5000000,
-      "quoted_slippage_bps": 17,
-      "nonce": 1794252246874000
-    },
-    "hedgeOrderPayloadHex": "9a1a82f0fc9a6e92b461f85aabf87f15caf24033c41b4030e1a2502576719599",
-    "expectedError": "DELTA_NEUTRALITY"
+  "rehearsal": {
+    "note": "Throwaway keyed account used to rehearse deploy + init before the real locked deploy; deleted afterwards, funds returned to the solver.",
+    "accountId": "zerodelta-v31-rehearsal-61a82f.testnet",
+    "transactions": [
+      "5sa2sZd3Ft8pdHACRvjoCXJR9StfUEzsKR19DvwesEsz",
+      "AuMZ7w13KziqxZ4jiqTHD3t6cR4jiK9FLqf6FeuEeT2Q",
+      "E85vgitT2C57mtYfoLQafyssyds6LS7ae1XUzJ5Zc8ho"
+    ],
+    "previewDigestMatchedTsMirror": true
   },
-  "payloadSwapAttempt": {
-    "order": {
-      "asset_symbol": "NEAR",
-      "treasury_usd_cents": 5000000,
-      "spot_long_usd_cents": 3327335,
-      "perp_short_usd_cents": 3327335,
-      "perp_long_usd_cents": 0,
-      "collateral_usd_cents": 5000000,
-      "quoted_slippage_bps": 10,
-      "nonce": 1794252262163000
+  "inflationAttempt": {
+    "args": {
+      "request": {
+        "run_id": "inflation-attack",
+        "order": {
+          "asset_symbol": "ETH",
+          "treasury_usd_cents": 5000000,
+          "spot_long_usd_cents": 3319221,
+          "perp_short_usd_cents": 3319221,
+          "perp_long_usd_cents": 0,
+          "collateral_usd_cents": 5000000,
+          "quoted_slippage_bps": 3,
+          "nonce": 1794419066713
+        },
+        "limit_px_e8": 20848000000,
+        "reference_px_e8": 20848000000,
+        "expires_after_ms": 1794421766713,
+        "expected_digest_hex": null,
+        "plan_hash": "be76bcb5364e79bf161ec9f8f9f3dae704d25bd8d4fdc739d861a6a6399d8285",
+        "intent_payload_hash": "c1dfd3a0a84cd2939140dc4cc4ba619b1be32e65329883db5ad698d0a88d51b1",
+        "attestation_report_hash": "203e28dd94967dec6faf282d456b158bc7ba287fe4322ec83e0ad01db429680f",
+        "decision_hash": "e6ec41a1cae10f8c05bc31c6412f79856997c2ecfd66ed987bd6c0dd830d0b07"
+      },
+      "request_mpc_sign": true
     },
-    "hedgeOrderPayloadHex": "c914509dad4c8eab4eec273c2ee758c5f324cfbe4b4036bf075bd79075940875",
-    "expectedError": "PAYLOAD_COMMITMENT_MISMATCH"
+    "limit": "208.48",
+    "reference": "208.48",
+    "expectedError": "ORDER_SIZE_CAP"
+  },
+  "expiryAttempt": {
+    "args": {
+      "request": {
+        "run_id": "expiry-too-far",
+        "order": {
+          "asset_symbol": "ETH",
+          "treasury_usd_cents": 5000000,
+          "spot_long_usd_cents": 3319221,
+          "perp_short_usd_cents": 3319221,
+          "perp_long_usd_cents": 0,
+          "collateral_usd_cents": 5000000,
+          "quoted_slippage_bps": 3,
+          "nonce": 1794419071153
+        },
+        "limit_px_e8": 207430000000,
+        "reference_px_e8": 208480000000,
+        "expires_after_ms": 1794426271153,
+        "expected_digest_hex": null,
+        "plan_hash": "be76bcb5364e79bf161ec9f8f9f3dae704d25bd8d4fdc739d861a6a6399d8285",
+        "intent_payload_hash": "c1dfd3a0a84cd2939140dc4cc4ba619b1be32e65329883db5ad698d0a88d51b1",
+        "attestation_report_hash": "203e28dd94967dec6faf282d456b158bc7ba287fe4322ec83e0ad01db429680f",
+        "decision_hash": "e6ec41a1cae10f8c05bc31c6412f79856997c2ecfd66ed987bd6c0dd830d0b07"
+      },
+      "request_mpc_sign": true
+    },
+    "expectedError": "EXPIRY_TOO_FAR"
   },
   "replayAttempt": {
-    "nonce": 1794252225913000,
+    "nonce": 1794419058678,
     "expectedError": "NONCE_ALREADY_USED"
-  },
-  "mpcSignature": {
-    "contractId": "v1.signer-prod.testnet",
-    "path": "zerodelta/hedge/arbitrum",
-    "domainId": 0,
-    "payloadHex": "731bc5e95dd15c01ae7046cb734d49a91578c2bc428d257bca0a989b49efab2d",
-    "predecessor": "zerodelta-guard-fb604f.testnet",
-    "derivedPublicKey": "secp256k1:5FGap6zRp2aEjvxmrXx3J4K8iEmbqQZNaj27ueGky4BAC1BxT5j2ozxJhUDBtjZ3N4TLb6uEB1xX4DL3PPXQiqwZ",
-    "evmAddress": "0x9d5A25917b23C1CF60fD5c7695621FD3Dca754dD",
-    "signature": {
-      "big_r": "0379d84e888370b3874c6bdbed667b6d99a82c6366588926926a4e6eea9e9a10ae",
-      "s": "3a27efb803490869787e067dc2394422ddda443fc968107fb4c7a0ba8a36c6bd",
-      "recovery_id": 1
-    }
   },
   "transactions": [
     {
-      "kind": "DEPLOY_REGISTER_AND_LOCK",
-      "label": "Deploy contract, register policy, delete the only access key",
-      "hash": "12skMoFQC6sNfB6YNqmpEiK8DCQUWYFPcDLNoAvXM5Lx",
-      "signerId": "zerodelta-guard-fb604f.testnet",
-      "receiverId": "zerodelta-guard-fb604f.testnet",
-      "methodName": "new",
+      "kind": "CREATE_V31_ACCOUNT",
+      "label": "Create and fund the v3.1 guard account (storage stake + 0.75 NEAR)",
+      "hash": "5ebeGbFsGKEP6kdZdA9rWWwgnB6BQi3FQKCvF2GCuGDw",
+      "signerId": "zerodelta-solver-fb604f.testnet",
+      "receiverId": "testnet",
+      "methodName": "create_account",
       "expect": "success",
-      "blockHash": "Dy3ihw9XHcimgfJ9hULTwd2D1QSWiwJbYKPjBJhpg8tH",
-      "explorerUrl": "https://testnet.nearblocks.io/txns/12skMoFQC6sNfB6YNqmpEiK8DCQUWYFPcDLNoAvXM5Lx",
-      "summary": "Deploys Risk Guard v2, stores policy 200/300/25, solver and MPC target, then deletes the account's full-access key in the same transaction. The policy and code can never change, and only the contract can call the MPC signer as this account."
+      "mpcReceipt": false,
+      "blockHash": "6Ucciz5BMABTqmm3HcCGcy5FBFPgxC8v2iedzVSEnC36",
+      "explorerUrl": "https://testnet.nearblocks.io/txns/5ebeGbFsGKEP6kdZdA9rWWwgnB6BQi3FQKCvF2GCuGDw",
+      "summary": "The solver asks the testnet registrar to create zerodelta-guard-v31-c6e71c.testnet with one full-access key and 4.5656 NEAR (the 381562-byte wasm needs 3.8156 NEAR of storage stake)."
     },
     {
-      "kind": "RECORD_AND_SIGN_APPROVED_REBALANCE",
-      "label": "Approved order verified on-chain; contract calls MPC sign",
-      "hash": "DZaDDUGQQLBkdZHiZxn95NtrmeUiGrd3a7af4hn37JfV",
+      "kind": "DEPLOY_INIT_AND_LOCK",
+      "label": "Deploy v3.1, register policy + market table + size caps, delete the only access key",
+      "hash": "9NbsEBfdBNbu8TkdGAhuJ3XmNxgyy4qM6wd9mabo7hRp",
+      "signerId": "zerodelta-guard-v31-c6e71c.testnet",
+      "receiverId": "zerodelta-guard-v31-c6e71c.testnet",
+      "methodName": "new",
+      "expect": "success",
+      "mpcReceipt": false,
+      "blockHash": "FnQNeGYQ4HhwDYo9wMP6hjbH8hXhnQKkorK44t3gVv8Y",
+      "explorerUrl": "https://testnet.nearblocks.io/txns/9NbsEBfdBNbu8TkdGAhuJ3XmNxgyy4qM6wd9mabo7hRp",
+      "summary": "One atomic transaction: deploy Risk Guard v3.1, initialise it (policy 200/300/25, price band 100 bps, notional band 50 bps, nonce window -5 min/+60 s, expiry at most 1 h, 24 h window with at most 6 orders, per-market size caps in coins, Hyperliquid testnet market table fetched 2026-11-11T17:43:33.763Z, MPC path zerodelta/hedge/hyperliquid), then delete the account's only full-access key."
+    },
+    {
+      "kind": "APPROVED_EXECUTABLE_HEDGE_SIGNED",
+      "label": "Approved order: contract builds the Hyperliquid order and has the MPC sign its digest",
+      "hash": "2VWtrtEURh3QRF8iyVXq5xxaRprhcVVnwp7kYddxZvtR",
       "signerId": "zerodelta-solver-fb604f.testnet",
-      "receiverId": "zerodelta-guard-fb604f.testnet",
-      "methodName": "record_rebalance",
+      "receiverId": "zerodelta-guard-v31-c6e71c.testnet",
+      "methodName": "sign_executable_hedge",
       "expect": "success",
       "expectedReceipt": {
-        "predecessorId": "zerodelta-guard-fb604f.testnet",
+        "predecessorId": "zerodelta-guard-v31-c6e71c.testnet",
         "receiverId": "v1.signer-prod.testnet",
         "methodName": "sign"
       },
-      "blockHash": "PunsKMdyayvee8AgbxdWDVGXbpaJy46ZX3wQMu8unEW",
-      "explorerUrl": "https://testnet.nearblocks.io/txns/DZaDDUGQQLBkdZHiZxn95NtrmeUiGrd3a7af4hn37JfV",
-      "summary": "Solver submits raw legs for NEAR (spot $33273.35, short $33273.35, nonce 1794252225913000). The contract computes 0 bps delta / 1.34x, checks keccak256(order) and the nonce, records attestation #0, then calls v1.signer-prod.testnet.sign itself and stores the returned signature."
+      "mpcReceipt": true,
+      "blockHash": "2mG9oiZ953QegqEBuUk8km4S6oWTQuqjo7FB9h576uwp",
+      "explorerUrl": "https://testnet.nearblocks.io/txns/2VWtrtEURh3QRF8iyVXq5xxaRprhcVVnwp7kYddxZvtR",
+      "summary": "Solver submits raw ETH legs (spot $33192.21, short $33192.21), limit 2074.3 vs reference 2084.8 and nonce 1794419058678 ms, valid for 45 minutes (expiresAfter). The contract recomputes risk, checks the size caps, builds one IOC sell of 16.0016 on Hyperliquid testnet market 4, computes the EIP-712 digest itself, calls v1.signer-prod.testnet.sign, and stores {r, s, v}."
     },
     {
-      "kind": "ROGUE_REBALANCE_REJECTED",
-      "label": "Rogue 10x order rejected on-chain (math)",
-      "hash": "H46fyRHiFoVrY6L3k9758ceRB6bhfT9v4onqZKkbonQo",
+      "kind": "INFLATION_ATTACK_REJECTED",
+      "label": "Price-inflation attack (limit = reference = 1/10 of market) rejected by the coin size cap",
+      "hash": "ibykqDGu99Y2kqW2xRW9kA3ot33r7usfDZTGzJ8GXHz",
       "signerId": "zerodelta-solver-fb604f.testnet",
-      "receiverId": "zerodelta-guard-fb604f.testnet",
-      "methodName": "record_rebalance",
+      "receiverId": "zerodelta-guard-v31-c6e71c.testnet",
+      "methodName": "sign_executable_hedge",
       "expect": "failure",
-      "expectedError": "DELTA_NEUTRALITY",
-      "blockHash": "3eDDaRpaQJhkzWQnXNZNGeMFFUNvGmGJ6c3qw6ju7xR4",
-      "explorerUrl": "https://testnet.nearblocks.io/txns/H46fyRHiFoVrY6L3k9758ceRB6bhfT9v4onqZKkbonQo",
-      "summary": "Solver submits the rogue legs (spot $49846.37, perp long $450000) with a matching payload and asks for an MPC signature. The contract computes the delta and leverage itself and panics; no MPC receipt is created."
+      "expectedError": "ORDER_SIZE_CAP",
+      "mpcReceipt": false,
+      "blockHash": "79qrGdv4531aVon3WZjtjAsdVmWHCX4Khh6XyD5fAJg",
+      "explorerUrl": "https://testnet.nearblocks.io/txns/ibykqDGu99Y2kqW2xRW9kA3ot33r7usfDZTGzJ8GXHz",
+      "summary": "The approved legs with limit = reference = 208.48 (about a tenth of the market). Sizing from that price would sell ~10x the approved notional; the contract's per-market size cap, which no solver-supplied price can move, refuses it: ORDER_SIZE_CAP: 159.2105 ETH exceeds the 40 per-order cap; WINDOW_SIZE_CAP: 16.0016 + 159.2105 ETH exceeds the 80 cap per 86400000 ms. No MPC receipt; last_nonce stays 1794419058678."
     },
     {
-      "kind": "PAYLOAD_SWAP_REJECTED",
-      "label": "Spoofed payload rejected on-chain",
-      "hash": "4PpxYCPEqwtLnuGR6i1Te2wWvs3Ynb94KqqqphEvbSHq",
+      "kind": "EXPIRY_TOO_FAR_REJECTED",
+      "label": "expiresAfter two hours ahead rejected (policy maximum is one hour)",
+      "hash": "GZqmFCkoSWzY1qQyykiEnimKDnHHH6dUwJ2GfgkwRzyX",
       "signerId": "zerodelta-solver-fb604f.testnet",
-      "receiverId": "zerodelta-guard-fb604f.testnet",
-      "methodName": "record_rebalance",
+      "receiverId": "zerodelta-guard-v31-c6e71c.testnet",
+      "methodName": "sign_executable_hedge",
       "expect": "failure",
-      "expectedError": "PAYLOAD_COMMITMENT_MISMATCH",
-      "blockHash": "ofkU6HCUNv9aD9yTbAZXSvmynabjotTbPTeEBmypBmR",
-      "explorerUrl": "https://testnet.nearblocks.io/txns/4PpxYCPEqwtLnuGR6i1Te2wWvs3Ynb94KqqqphEvbSHq",
-      "summary": "A compromised solver sends the approved, delta-neutral numbers with a fresh nonce but swaps in the MPC payload of a 10x long. The contract recomputes keccak256(order), sees the mismatch and panics before any MPC call."
+      "expectedError": "EXPIRY_TOO_FAR",
+      "mpcReceipt": false,
+      "blockHash": "GTWdC8z44voSw94hJzoYVtUoexGr1FbSmVk7DVvDyGe6",
+      "explorerUrl": "https://testnet.nearblocks.io/txns/GZqmFCkoSWzY1qQyykiEnimKDnHHH6dUwJ2GfgkwRzyX",
+      "summary": "The approved request with a fresh nonce and expiresAfter set 2 hours ahead. The contract allows at most 1 hour, so a collected signature cannot stay usable at Hyperliquid for days. No MPC receipt."
     },
     {
       "kind": "REPLAY_REJECTED",
-      "label": "Replay of the approved order rejected on-chain",
-      "hash": "3rQrPFjByJmK676YJyX7v785unoSr6FanWTdrKfXqSff",
+      "label": "Byte-identical replay of the approved request rejected on-chain",
+      "hash": "tQ5F63XgRNCbywsiwGoTZb4X46Js2bLJtQfwkpaj6Gj",
       "signerId": "zerodelta-solver-fb604f.testnet",
-      "receiverId": "zerodelta-guard-fb604f.testnet",
-      "methodName": "record_rebalance",
+      "receiverId": "zerodelta-guard-v31-c6e71c.testnet",
+      "methodName": "sign_executable_hedge",
       "expect": "failure",
       "expectedError": "NONCE_ALREADY_USED",
-      "blockHash": "GC6JtM133fn6gq2fBd1BUNsPBGZ5siYGi7rKKAorn13N",
-      "explorerUrl": "https://testnet.nearblocks.io/txns/3rQrPFjByJmK676YJyX7v785unoSr6FanWTdrKfXqSff",
-      "summary": "Byte-identical resubmission of the approved order (nonce 1794252225913000) to get a second signature. The contract panics with NONCE_ALREADY_USED."
+      "mpcReceipt": false,
+      "blockHash": "AKQA2fwqsq2GtxpXm9eMco9KoQoY8yoqkW92UCuCv3jg",
+      "explorerUrl": "https://testnet.nearblocks.io/txns/tQ5F63XgRNCbywsiwGoTZb4X46Js2bLJtQfwkpaj6Gj",
+      "summary": "The exact arguments of the approved transaction (nonce 1794419058678) sent again to get a second signature. Rejected: NONCE_ALREADY_USED; no MPC receipt."
+    },
+    {
+      "kind": "PRIVATE_CALLBACK_REJECTED",
+      "label": "Solver calling the #[private] MPC callback directly is rejected",
+      "hash": "5Y2e6cWEKhiLCGLJ8qeZ9PPWzc2tifyt5TZHQ2NTrzS8",
+      "signerId": "zerodelta-solver-fb604f.testnet",
+      "receiverId": "zerodelta-guard-v31-c6e71c.testnet",
+      "methodName": "on_mpc_signed",
+      "expect": "failure",
+      "expectedError": "is private",
+      "mpcReceipt": false,
+      "blockHash": "CuDWa7iXpJVMZcWAuKDADeq3aeMcTtwNjciMqpzWvJdH",
+      "explorerUrl": "https://testnet.nearblocks.io/txns/5Y2e6cWEKhiLCGLJ8qeZ9PPWzc2tifyt5TZHQ2NTrzS8",
+      "summary": "Only the contract itself may deliver an MPC result. A direct call from the solver panics with 'Method on_mpc_signed is private'; attestation #0 is unchanged."
     }
   ],
-  "previousDeployment": {
-    "version": 1,
-    "contract": "zerodelta-guard-05eb36.testnet",
-    "solver": "zerodelta-solver-05eb36.testnet",
-    "note": "v1 trusted solver-reported metrics and the guard account called the MPC signer directly. Superseded by v2 after the audit; kept for history only.",
-    "transactions": [
-      "4vmYxuUKyYkxqncxrynHnzKzQs361tpmWCBhjt7MVLEv",
-      "CN4PTSCohASuT2bJVirNaPr71AdBZJRbKwJWX3XGdDrq",
-      "Chi8iDjP7DEeiqNF2tB7nMBo8UKKcFjyKrFsAyWNumob",
-      "HnG4r4Cq5S2rNARdjBPPKqGQS9F116QYmLhTTTtGWTX9"
+  "supersededV3": {
+    "contract": "zerodelta-guard-v3-a9c75f.testnet",
+    "hedgeAddress": "0xef639b571185dc6ee0e4680de4e8dd81e7e02c66",
+    "note": "Risk Guard v3 stays deployed and locked, so it cannot be patched. A pre-merge audit found the issues below; v3.1 is the deployment this project stands behind. The v3 proof is kept unchanged under previousDeployment.",
+    "findings": [
+      "HIGH: size = approved notional / limit price, and the limit is only checked against a reference the same solver supplies, so limit = reference = a small price got an order many times the approved size approved (confirmed with a read-only preview of the deployed contract: 2x at 1/2 price, 10x at 1/10). Fixed in v3.1 by per-market size caps in coins.",
+      "MEDIUM: no cumulative cap, so approved hedges could stack. Fixed in v3.1 by a rolling-window size cap and an order-count cap.",
+      "MEDIUM: no expiresAfter, so a signature stayed usable at Hyperliquid for days. Fixed in v3.1 by a policy-bounded expiresAfter hashed into the order.",
+      "LOW: an MPC response that did not deserialize left the attestation Pending; the $10 Hyperliquid minimum was not enforced. Fixed in v3.1."
     ]
+  },
+  "previousDeploymentFile": {
+    "path": "proofs/testnet-proof.v3.json",
+    "sha256": "5de02ae720bb0995fbb07880d88153129b5d80a5e181e214f95bb06886a408c6"
+  },
+  "previousDeployment": {
+    "network": "testnet",
+    "version": 3,
+    "createdAt": "2026-11-11T15:05:43.266Z",
+    "contract": {
+      "accountId": "zerodelta-guard-v3-a9c75f.testnet",
+      "codeHash": "CJ1BEUKBhtU6E744SQTmhcDuXw4SchTeqoCg8YkHPAA",
+      "wasmPath": "contracts/risk-guard-v3/res/zerodelta_risk_guard_v3.wasm",
+      "wasmBytes": 375283,
+      "wasmSha256Hex": "02e49d42c9d4152196dbd054403f546839c14c8801174bbe6249eedd265999fb",
+      "sourcePath": "contracts/risk-guard-v3/src/lib.rs",
+      "policy": {
+        "max_delta_bps": 200,
+        "max_leverage_x100": 300,
+        "max_slippage_bps": 25,
+        "price_band_bps": 100,
+        "notional_band_bps": 50,
+        "max_nonce_age_ms": 300000,
+        "max_nonce_future_ms": 60000
+      },
+      "hlNetwork": "testnet",
+      "markets": [
+        {
+          "symbol": "BTC",
+          "asset": 3,
+          "sz_decimals": 5
+        },
+        {
+          "symbol": "ETH",
+          "asset": 4,
+          "sz_decimals": 4
+        },
+        {
+          "symbol": "SOL",
+          "asset": 0,
+          "sz_decimals": 2
+        },
+        {
+          "symbol": "NEAR",
+          "asset": 54,
+          "sz_decimals": 1
+        }
+      ],
+      "marketsFetchedAt": "2026-11-11T15:04:23.380Z",
+      "marketsSource": "https://api.hyperliquid-testnet.xyz/info {\"type\":\"meta\"} (live table == pinned HYPERLIQUID_PERPS_TESTNET)",
+      "mpcSignerContract": "v1.signer-prod.testnet",
+      "mpcPath": "zerodelta/hedge/hyperliquid",
+      "locked": true,
+      "accessKeys": 0,
+      "storage": {
+        "storageAmountPerByteYocto": "10000000000000000000",
+        "wasmStakeYocto": "3752830000000000000000000",
+        "fundedYocto": "4752830000000000000000000",
+        "storageUsageBytes": 376815,
+        "stakeChargedYocto": "3768150000000000000000000"
+      },
+      "config": {
+        "solver": "zerodelta-solver-fb604f.testnet",
+        "policy": {
+          "max_delta_bps": 200,
+          "max_leverage_x100": 300,
+          "max_slippage_bps": 25,
+          "price_band_bps": 100,
+          "notional_band_bps": 50,
+          "max_nonce_age_ms": 300000,
+          "max_nonce_future_ms": 60000
+        },
+        "hl_network": "testnet",
+        "markets": [
+          {
+            "symbol": "BTC",
+            "asset": 3,
+            "sz_decimals": 5
+          },
+          {
+            "symbol": "ETH",
+            "asset": 4,
+            "sz_decimals": 4
+          },
+          {
+            "symbol": "SOL",
+            "asset": 0,
+            "sz_decimals": 2
+          },
+          {
+            "symbol": "NEAR",
+            "asset": 54,
+            "sz_decimals": 1
+          }
+        ],
+        "markets_fetched_at": "2026-11-11T15:04:23.380Z",
+        "mpc_signer_contract": "v1.signer-prod.testnet",
+        "mpc_path": "zerodelta/hedge/hyperliquid",
+        "mpc_deposit": "1",
+        "last_nonce": 1794409521698,
+        "attestation_count": 1,
+        "version": "3.0.0"
+      }
+    },
+    "accounts": {
+      "guard": "zerodelta-guard-v3-a9c75f.testnet",
+      "solver": "zerodelta-solver-fb604f.testnet"
+    },
+    "hedgeKey": {
+      "path": "zerodelta/hedge/hyperliquid",
+      "predecessor": "zerodelta-guard-v3-a9c75f.testnet",
+      "derivedPublicKey": "secp256k1:5KCXCafQAdocJ8DNfjyCJ9xuC2qhYsPJzR9jQa2QiZkbFLqwrzdST74oV18GCwKEv1bz1JMnsJsLDe1N29Lc8yYg",
+      "evmAddress": "0xef639b571185dc6ee0e4680de4e8dd81e7e02c66",
+      "note": "Hyperliquid must recover THIS address from the signature (CP4). It differs from v2's zerodelta/hedge/arbitrum key."
+    },
+    "approvedHedge": {
+      "index": 0,
+      "args": {
+        "request": {
+          "run_id": "302e1e6b9062",
+          "order": {
+            "asset_symbol": "SOL",
+            "treasury_usd_cents": 5000000,
+            "spot_long_usd_cents": 3327581,
+            "perp_short_usd_cents": 3327581,
+            "perp_long_usd_cents": 0,
+            "collateral_usd_cents": 5000000,
+            "quoted_slippage_bps": 7,
+            "nonce": 1794409521698
+          },
+          "limit_px_e8": 9196100000,
+          "reference_px_e8": 9242400000,
+          "expected_digest_hex": "20765c12877d7bba598bbb84ea42d1157e23bd15f4b0d6c14940f449258ee02f",
+          "plan_hash": "7d6e3d7512502144f812ffa234226235d97c0ba107f8fb26f886e26e50b9f70f",
+          "intent_payload_hash": "da0d45def2a209acb14317d61e6695c9bd55ee540976a4b6d0474087a41c7e40",
+          "attestation_report_hash": "90c0832f5868a3462ed105e5ce2c12ae08aa4a165021085dbff008e01b2491f6",
+          "decision_hash": "23d871bf59f62236237193d0956389009a8adc6f69242f540b8b6edc9e4f8138"
+        },
+        "request_mpc_sign": true
+      },
+      "referencePx": "92.424",
+      "limitPx": "91.961",
+      "swarmRecommendation": "TRADE",
+      "demoOverride": false,
+      "market": {
+        "symbol": "SOL",
+        "asset": 0,
+        "sz_decimals": 2
+      },
+      "sizeE8": 36184000000,
+      "connectionIdHex": "538a7e4b9c52e014e92b09408936a6624be70f98ec43b591a88d120394138b7f",
+      "digestHex": "20765c12877d7bba598bbb84ea42d1157e23bd15f4b0d6c14940f449258ee02f",
+      "commitmentHex": "c76b44691e2796a896ef9b46731e61cfb26b9b42674eec7d541c8458eef677a4",
+      "digestMatchesTsMirror": true,
+      "exchangeRequest": {
+        "action": {
+          "type": "order",
+          "orders": [
+            {
+              "a": 0,
+              "b": false,
+              "p": "91.961",
+              "s": "361.84",
+              "r": false,
+              "t": {
+                "limit": {
+                  "tif": "Ioc"
+                }
+              }
+            }
+          ],
+          "grouping": "na"
+        },
+        "nonce": 1794409521698,
+        "signature": {
+          "r": "0xa1cd22990c8fce603eef02f0ee2f9eb35ccb466ee0482da2164888bba5a933d3",
+          "s": "0x36ea3e12f35ebd8379d20cc749ce7581b15520008e40e14a5e751abb7ca3fee0",
+          "v": 28
+        },
+        "vaultAddress": null
+      },
+      "recoveredAddressOffline": "0xef639b571185dc6ee0e4680de4e8dd81e7e02c66"
+    },
+    "rehearsal": {
+      "note": "Throwaway keyed account used to rehearse deploy + init before the real locked deploy; deleted afterwards, funds returned to the solver.",
+      "accountId": "zerodelta-v3-rehearsal-a9c75f.testnet",
+      "transactions": [
+        "29RRnwJriD6syBWdULfD7jUVx61W9abNBab5gRdwViAP",
+        "D9KfipPRJk955RWGnNu3bS1Tm9rPwwnrFpC6iiC5r9V7",
+        "8qs98TP3WM4ZcBGqn8D1tSCZKCc2SR8tjN1BZu9cnowm"
+      ],
+      "previewDigestMatchedTsMirror": true
+    },
+    "outOfBandAttempt": {
+      "args": {
+        "request": {
+          "run_id": "price-out-of-band-attack",
+          "order": {
+            "asset_symbol": "SOL",
+            "treasury_usd_cents": 5000000,
+            "spot_long_usd_cents": 3327581,
+            "perp_short_usd_cents": 3327581,
+            "perp_long_usd_cents": 0,
+            "collateral_usd_cents": 5000000,
+            "quoted_slippage_bps": 7,
+            "nonce": 1794409530788
+          },
+          "limit_px_e8": 8965100000,
+          "reference_px_e8": 9242400000,
+          "expected_digest_hex": null,
+          "plan_hash": "7d6e3d7512502144f812ffa234226235d97c0ba107f8fb26f886e26e50b9f70f",
+          "intent_payload_hash": "da0d45def2a209acb14317d61e6695c9bd55ee540976a4b6d0474087a41c7e40",
+          "attestation_report_hash": "90c0832f5868a3462ed105e5ce2c12ae08aa4a165021085dbff008e01b2491f6",
+          "decision_hash": "23d871bf59f62236237193d0956389009a8adc6f69242f540b8b6edc9e4f8138"
+        },
+        "request_mpc_sign": true
+      },
+      "expectedError": "PRICE_OUT_OF_BAND"
+    },
+    "replayAttempt": {
+      "nonce": 1794409521698,
+      "expectedError": "NONCE_ALREADY_USED"
+    },
+    "transactions": [
+      {
+        "kind": "CREATE_V3_ACCOUNT",
+        "label": "Create and fund the v3 guard account (storage stake + 1 NEAR)",
+        "hash": "GrYo4p8tMcJc5Un6LvTT6psJ5bbKC8dKiYZ6WTcCEzKi",
+        "signerId": "zerodelta-solver-fb604f.testnet",
+        "receiverId": "testnet",
+        "methodName": "create_account",
+        "expect": "success",
+        "mpcReceipt": false,
+        "blockHash": "CYRCTGJTEEHqkjYLMCQpgNQEBsCeoqBDY7noHGvnjmUL",
+        "explorerUrl": "https://testnet.nearblocks.io/txns/GrYo4p8tMcJc5Un6LvTT6psJ5bbKC8dKiYZ6WTcCEzKi",
+        "summary": "The solver asks the testnet registrar to create zerodelta-guard-v3-a9c75f.testnet with one full-access key and 4.7528 NEAR (the 375283-byte wasm needs 3.7528 NEAR of storage stake)."
+      },
+      {
+        "kind": "DEPLOY_INIT_AND_LOCK",
+        "label": "Deploy v3, register policy + market table, delete the only access key",
+        "hash": "3ZazKuBgvi3mQaWout48RvujJ2cuA5FdhasvjqxUm5Vh",
+        "signerId": "zerodelta-guard-v3-a9c75f.testnet",
+        "receiverId": "zerodelta-guard-v3-a9c75f.testnet",
+        "methodName": "new",
+        "expect": "success",
+        "mpcReceipt": false,
+        "blockHash": "AnkE1FkUaeVk4SyLfNL9nUZ59DVj3AfifRg3HjtTW4py",
+        "explorerUrl": "https://testnet.nearblocks.io/txns/3ZazKuBgvi3mQaWout48RvujJ2cuA5FdhasvjqxUm5Vh",
+        "summary": "One atomic transaction: deploy Risk Guard v3, initialise it (policy 200/300/25, band 100 bps, notional band 50 bps, nonce window -5 min/+60 s, Hyperliquid testnet market table fetched 2026-11-11T15:04:23.380Z, MPC path zerodelta/hedge/hyperliquid), then delete the account's only full-access key."
+      },
+      {
+        "kind": "APPROVED_EXECUTABLE_HEDGE_SIGNED",
+        "label": "Approved order: contract builds the Hyperliquid order and has the MPC sign its digest",
+        "hash": "2SAhjj5Xju19NA3t9KsjTGAoQp5RWyhTbwEpqC6wUdkF",
+        "signerId": "zerodelta-solver-fb604f.testnet",
+        "receiverId": "zerodelta-guard-v3-a9c75f.testnet",
+        "methodName": "sign_executable_hedge",
+        "expect": "success",
+        "expectedReceipt": {
+          "predecessorId": "zerodelta-guard-v3-a9c75f.testnet",
+          "receiverId": "v1.signer-prod.testnet",
+          "methodName": "sign"
+        },
+        "mpcReceipt": true,
+        "blockHash": "CPJANpcgo74kkteeZt91Xaaj7zMpnXrG2C8KTHZusF46",
+        "explorerUrl": "https://testnet.nearblocks.io/txns/2SAhjj5Xju19NA3t9KsjTGAoQp5RWyhTbwEpqC6wUdkF",
+        "summary": "Solver submits raw SOL legs (spot $33275.81, short $33275.81), limit 91.961 vs reference 92.424 and nonce 1794409521698 ms. The contract recomputes risk, builds one IOC sell of 361.84 on Hyperliquid testnet market 0, computes the EIP-712 digest itself, calls v1.signer-prod.testnet.sign, and stores {r, s, v}."
+      },
+      {
+        "kind": "PRICE_OUT_OF_BAND_REJECTED",
+        "label": "Limit price 3% under the reference rejected on-chain",
+        "hash": "EznaA4oyAhMxADoHTEToFEurf8JZKg3vs65tGYNfKbEq",
+        "signerId": "zerodelta-solver-fb604f.testnet",
+        "receiverId": "zerodelta-guard-v3-a9c75f.testnet",
+        "methodName": "sign_executable_hedge",
+        "expect": "failure",
+        "expectedError": "PRICE_OUT_OF_BAND",
+        "mpcReceipt": false,
+        "blockHash": "GmaX3MhieNds6ekutHtL64vsLKK9wddhY7dw27XLfugb",
+        "explorerUrl": "https://testnet.nearblocks.io/txns/EznaA4oyAhMxADoHTEToFEurf8JZKg3vs65tGYNfKbEq",
+        "summary": "Same approved legs with a fresh nonce (1794409530788) but limit 89.651 vs reference 92.424 (> 100 bps). The contract panics before building a signable order: no MPC receipt, last_nonce stays 1794409521698."
+      },
+      {
+        "kind": "REPLAY_REJECTED",
+        "label": "Byte-identical replay of the approved request rejected on-chain",
+        "hash": "CRCZghG2vHL3xrSp27XuWM41SmtR6pNsKjE8FoYLLyjQ",
+        "signerId": "zerodelta-solver-fb604f.testnet",
+        "receiverId": "zerodelta-guard-v3-a9c75f.testnet",
+        "methodName": "sign_executable_hedge",
+        "expect": "failure",
+        "expectedError": "NONCE_ALREADY_USED",
+        "mpcReceipt": false,
+        "blockHash": "85JHTKNYUEqySbmFJCasKSip8fViSvdCi324CLnG3Xka",
+        "explorerUrl": "https://testnet.nearblocks.io/txns/CRCZghG2vHL3xrSp27XuWM41SmtR6pNsKjE8FoYLLyjQ",
+        "summary": "The exact arguments of the approved transaction (nonce 1794409521698) sent again to get a second signature. Rejected: NONCE_ALREADY_USED; no MPC receipt."
+      },
+      {
+        "kind": "PRIVATE_CALLBACK_REJECTED",
+        "label": "Solver calling the #[private] MPC callback directly is rejected",
+        "hash": "8pL5kKgXZkry3WVXeA2ai4Ys6nzj5BgQDUbt5CBieoSh",
+        "signerId": "zerodelta-solver-fb604f.testnet",
+        "receiverId": "zerodelta-guard-v3-a9c75f.testnet",
+        "methodName": "on_mpc_signed",
+        "expect": "failure",
+        "expectedError": "is private",
+        "mpcReceipt": false,
+        "blockHash": "DuRL2wooSCoMa3JN6kU4n6Z3s3dQGgeDJ5jp4398Gqet",
+        "explorerUrl": "https://testnet.nearblocks.io/txns/8pL5kKgXZkry3WVXeA2ai4Ys6nzj5BgQDUbt5CBieoSh",
+        "summary": "Only the contract itself may deliver an MPC result. A direct call from the solver panics with 'Method on_mpc_signed is private'; attestation #0 is unchanged."
+      }
+    ],
+    "previousDeploymentFile": {
+      "path": "proofs/testnet-proof.v2.json",
+      "sha256": "99a0feb37566af1578148481191cad69511b78f2bcac552f729cabb09b138581"
+    },
+    "previousDeployment": {
+      "network": "testnet",
+      "version": 2,
+      "createdAt": "2026-11-09T19:24:48.023Z",
+      "contract": {
+        "accountId": "zerodelta-guard-fb604f.testnet",
+        "codeHash": "6VqcNeQLfWWN7XyFHbvhZJoDoZLNQMEsgRpapn1jJEqk",
+        "wasmPath": "contracts/risk-guard/res/zerodelta_risk_guard.wasm",
+        "wasmSha256Hex": "51ada920b44f5653e8a9293ebac08fbeee3f2d280d77efacfede33b68ca71ce7",
+        "sourcePath": "contracts/risk-guard/src/lib.rs",
+        "policy": {
+          "max_delta_bps": 200,
+          "max_leverage_x100": 300,
+          "max_slippage_bps": 25
+        },
+        "mpcSignerContract": "v1.signer-prod.testnet",
+        "mpcPath": "zerodelta/hedge/arbitrum",
+        "locked": true
+      },
+      "accounts": {
+        "guard": "zerodelta-guard-fb604f.testnet",
+        "solver": "zerodelta-solver-fb604f.testnet"
+      },
+      "approvedOrder": {
+        "index": 0,
+        "runId": "c8e07b4dcf36",
+        "order": {
+          "asset_symbol": "NEAR",
+          "treasury_usd_cents": 5000000,
+          "spot_long_usd_cents": 3327335,
+          "perp_short_usd_cents": 3327335,
+          "perp_long_usd_cents": 0,
+          "collateral_usd_cents": 5000000,
+          "quoted_slippage_bps": 10,
+          "nonce": 1794252225913000
+        },
+        "hedgeOrderPayloadHex": "731bc5e95dd15c01ae7046cb734d49a91578c2bc428d257bca0a989b49efab2d",
+        "decisionHash": "9d9e38bdcce135964d54469acd85cefd055f5de6f1ddc902eac028e5bcf9c6ab",
+        "planHash": "466add100be6975fa1d1384fcc817b9dc57ea8e9741536c60daa57f102b18c8c",
+        "intentPayloadHash": "cae135173955588967f885d4cb3eb6c0c311dcf14b9aebaa2619287ea9523212",
+        "attestationReportHash": "6975a6665200fafb931a74561c2ea2cfa22c84fd5188e7a3cf8775a361d2e710",
+        "contractMetrics": {
+          "net_delta_bps": 0,
+          "leverage_x100": 134
+        }
+      },
+      "rogueAttempt": {
+        "order": {
+          "asset_symbol": "NEAR",
+          "treasury_usd_cents": 5000000,
+          "spot_long_usd_cents": 4984637,
+          "perp_short_usd_cents": 0,
+          "perp_long_usd_cents": 45000000,
+          "collateral_usd_cents": 5000000,
+          "quoted_slippage_bps": 17,
+          "nonce": 1794252246874000
+        },
+        "hedgeOrderPayloadHex": "9a1a82f0fc9a6e92b461f85aabf87f15caf24033c41b4030e1a2502576719599",
+        "expectedError": "DELTA_NEUTRALITY"
+      },
+      "payloadSwapAttempt": {
+        "order": {
+          "asset_symbol": "NEAR",
+          "treasury_usd_cents": 5000000,
+          "spot_long_usd_cents": 3327335,
+          "perp_short_usd_cents": 3327335,
+          "perp_long_usd_cents": 0,
+          "collateral_usd_cents": 5000000,
+          "quoted_slippage_bps": 10,
+          "nonce": 1794252262163000
+        },
+        "hedgeOrderPayloadHex": "c914509dad4c8eab4eec273c2ee758c5f324cfbe4b4036bf075bd79075940875",
+        "expectedError": "PAYLOAD_COMMITMENT_MISMATCH"
+      },
+      "replayAttempt": {
+        "nonce": 1794252225913000,
+        "expectedError": "NONCE_ALREADY_USED"
+      },
+      "mpcSignature": {
+        "contractId": "v1.signer-prod.testnet",
+        "path": "zerodelta/hedge/arbitrum",
+        "domainId": 0,
+        "payloadHex": "731bc5e95dd15c01ae7046cb734d49a91578c2bc428d257bca0a989b49efab2d",
+        "predecessor": "zerodelta-guard-fb604f.testnet",
+        "derivedPublicKey": "secp256k1:5FGap6zRp2aEjvxmrXx3J4K8iEmbqQZNaj27ueGky4BAC1BxT5j2ozxJhUDBtjZ3N4TLb6uEB1xX4DL3PPXQiqwZ",
+        "evmAddress": "0x9d5A25917b23C1CF60fD5c7695621FD3Dca754dD",
+        "signature": {
+          "big_r": "0379d84e888370b3874c6bdbed667b6d99a82c6366588926926a4e6eea9e9a10ae",
+          "s": "3a27efb803490869787e067dc2394422ddda443fc968107fb4c7a0ba8a36c6bd",
+          "recovery_id": 1
+        }
+      },
+      "transactions": [
+        {
+          "kind": "DEPLOY_REGISTER_AND_LOCK",
+          "label": "Deploy contract, register policy, delete the only access key",
+          "hash": "12skMoFQC6sNfB6YNqmpEiK8DCQUWYFPcDLNoAvXM5Lx",
+          "signerId": "zerodelta-guard-fb604f.testnet",
+          "receiverId": "zerodelta-guard-fb604f.testnet",
+          "methodName": "new",
+          "expect": "success",
+          "blockHash": "Dy3ihw9XHcimgfJ9hULTwd2D1QSWiwJbYKPjBJhpg8tH",
+          "explorerUrl": "https://testnet.nearblocks.io/txns/12skMoFQC6sNfB6YNqmpEiK8DCQUWYFPcDLNoAvXM5Lx",
+          "summary": "Deploys Risk Guard v2, stores policy 200/300/25, solver and MPC target, then deletes the account's full-access key in the same transaction. The policy and code can never change, and only the contract can call the MPC signer as this account."
+        },
+        {
+          "kind": "RECORD_AND_SIGN_APPROVED_REBALANCE",
+          "label": "Approved order verified on-chain; contract calls MPC sign",
+          "hash": "DZaDDUGQQLBkdZHiZxn95NtrmeUiGrd3a7af4hn37JfV",
+          "signerId": "zerodelta-solver-fb604f.testnet",
+          "receiverId": "zerodelta-guard-fb604f.testnet",
+          "methodName": "record_rebalance",
+          "expect": "success",
+          "expectedReceipt": {
+            "predecessorId": "zerodelta-guard-fb604f.testnet",
+            "receiverId": "v1.signer-prod.testnet",
+            "methodName": "sign"
+          },
+          "blockHash": "PunsKMdyayvee8AgbxdWDVGXbpaJy46ZX3wQMu8unEW",
+          "explorerUrl": "https://testnet.nearblocks.io/txns/DZaDDUGQQLBkdZHiZxn95NtrmeUiGrd3a7af4hn37JfV",
+          "summary": "Solver submits raw legs for NEAR (spot $33273.35, short $33273.35, nonce 1794252225913000). The contract computes 0 bps delta / 1.34x, checks keccak256(order) and the nonce, records attestation #0, then calls v1.signer-prod.testnet.sign itself and stores the returned signature."
+        },
+        {
+          "kind": "ROGUE_REBALANCE_REJECTED",
+          "label": "Rogue 10x order rejected on-chain (math)",
+          "hash": "H46fyRHiFoVrY6L3k9758ceRB6bhfT9v4onqZKkbonQo",
+          "signerId": "zerodelta-solver-fb604f.testnet",
+          "receiverId": "zerodelta-guard-fb604f.testnet",
+          "methodName": "record_rebalance",
+          "expect": "failure",
+          "expectedError": "DELTA_NEUTRALITY",
+          "blockHash": "3eDDaRpaQJhkzWQnXNZNGeMFFUNvGmGJ6c3qw6ju7xR4",
+          "explorerUrl": "https://testnet.nearblocks.io/txns/H46fyRHiFoVrY6L3k9758ceRB6bhfT9v4onqZKkbonQo",
+          "summary": "Solver submits the rogue legs (spot $49846.37, perp long $450000) with a matching payload and asks for an MPC signature. The contract computes the delta and leverage itself and panics; no MPC receipt is created."
+        },
+        {
+          "kind": "PAYLOAD_SWAP_REJECTED",
+          "label": "Spoofed payload rejected on-chain",
+          "hash": "4PpxYCPEqwtLnuGR6i1Te2wWvs3Ynb94KqqqphEvbSHq",
+          "signerId": "zerodelta-solver-fb604f.testnet",
+          "receiverId": "zerodelta-guard-fb604f.testnet",
+          "methodName": "record_rebalance",
+          "expect": "failure",
+          "expectedError": "PAYLOAD_COMMITMENT_MISMATCH",
+          "blockHash": "ofkU6HCUNv9aD9yTbAZXSvmynabjotTbPTeEBmypBmR",
+          "explorerUrl": "https://testnet.nearblocks.io/txns/4PpxYCPEqwtLnuGR6i1Te2wWvs3Ynb94KqqqphEvbSHq",
+          "summary": "A compromised solver sends the approved, delta-neutral numbers with a fresh nonce but swaps in the MPC payload of a 10x long. The contract recomputes keccak256(order), sees the mismatch and panics before any MPC call."
+        },
+        {
+          "kind": "REPLAY_REJECTED",
+          "label": "Replay of the approved order rejected on-chain",
+          "hash": "3rQrPFjByJmK676YJyX7v785unoSr6FanWTdrKfXqSff",
+          "signerId": "zerodelta-solver-fb604f.testnet",
+          "receiverId": "zerodelta-guard-fb604f.testnet",
+          "methodName": "record_rebalance",
+          "expect": "failure",
+          "expectedError": "NONCE_ALREADY_USED",
+          "blockHash": "GC6JtM133fn6gq2fBd1BUNsPBGZ5siYGi7rKKAorn13N",
+          "explorerUrl": "https://testnet.nearblocks.io/txns/3rQrPFjByJmK676YJyX7v785unoSr6FanWTdrKfXqSff",
+          "summary": "Byte-identical resubmission of the approved order (nonce 1794252225913000) to get a second signature. The contract panics with NONCE_ALREADY_USED."
+        }
+      ],
+      "previousDeployment": {
+        "version": 1,
+        "contract": "zerodelta-guard-05eb36.testnet",
+        "solver": "zerodelta-solver-05eb36.testnet",
+        "note": "v1 trusted solver-reported metrics and the guard account called the MPC signer directly. Superseded by v2 after the audit; kept for history only.",
+        "transactions": [
+          "4vmYxuUKyYkxqncxrynHnzKzQs361tpmWCBhjt7MVLEv",
+          "CN4PTSCohASuT2bJVirNaPr71AdBZJRbKwJWX3XGdDrq",
+          "Chi8iDjP7DEeiqNF2tB7nMBo8UKKcFjyKrFsAyWNumob",
+          "HnG4r4Cq5S2rNARdjBPPKqGQS9F116QYmLhTTTtGWTX9"
+        ]
+      }
+    }
   }
 }

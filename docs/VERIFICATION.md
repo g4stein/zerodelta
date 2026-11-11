@@ -14,10 +14,14 @@ npm ci          # Node.js >= 20.9
 | Command | What it proves | Network | Count |
 |---|---|---|---|
 | `npm run typecheck` | Whole repo type-checks | none | — |
-| `npm test` | TypeScript unit + integration tests: NEP-413, scanner ranking and NO_TRADE, negotiation, 8 guard invariants, compromised solver, payload swap, replay, stale and concurrent nonces, intent/attestation/envelope tampering, mocked RPC failures, TS/Rust mirror vectors, Hyperliquid SDK vectors, recorded proof data | none (fetch is mocked where used) | 100 tests in 3 files |
-| `cd contracts/risk-guard && cargo test` | The deployed contract's logic: 18 unit tests in `src/lib.rs` + 15 adversarial tests in `tests/adversarial.rs` (rounding boundaries, every order field bound by the payload, invalid symbols, u64 extremes, deposits, nonce floor) | none | 33 tests (needs Rust; 1.81 matches the deployed build) |
-| `npm run verify:offline` | Offline subset of the harness, including the recorded proof data, WASM hash, MPC signature recovery, NO_TRADE and Hyperliquid vectors | none | 22 pass, 25 skipped (live-only) |
-| `npm run verify` | Everything above plus live read-only checks: NEAR RPC, `intents.near` `simulate_intents`, 1Click, Hyperliquid, the deployed contract's state, and every historical transaction re-fetched from an archival RPC | public endpoints | 57 checks |
+| `npm test` | TypeScript unit + integration tests: NEP-413, scanner ranking and NO_TRADE, negotiation, 8 guard invariants, compromised solver, payload swap, replay, stale and concurrent nonces, intent/attestation/envelope tampering, mocked RPC failures, TS/Rust mirror vectors, Hyperliquid SDK vectors, exact sizing, the v3 and v3.1 build mirrors, parity-fixture freshness, the v2, v3 and v3.1 proof data, the acceptance classifier | none (fetch is mocked where used) | 118 tests in 5 files |
+| `cd contracts/risk-guard && cargo test` | The v2 contract's logic: 18 unit tests in `src/lib.rs` + 15 adversarial tests in `tests/adversarial.rs` (rounding boundaries, every order field bound by the payload, invalid symbols, u64 extremes, deposits, nonce floor) | none | 33 tests (needs Rust; 1.81 matches the deployed build) |
+| `cd contracts/risk-guard-v3 && cargo test` | The v3 contract: Hyperliquid encoding units, the official SDK vectors, 64 actions and 110 contract-level cases byte-identical to the TypeScript mirror, and an adversarial test for every rejection | none | 44 tests (Rust 1.81) |
+| `cd contracts/risk-guard-v31 && cargo test` | The v3.1 contract: size caps, rolling window, expiry, minimum order value, malformed MPC response, SDK vectors, 134 contract-level cases byte-identical to the TypeScript mirror | none | 55 tests (Rust 1.81) |
+| `python3 contracts/mutation-test.py v31` | Applies 27 deliberate bugs to a copy of the v3.1 source and checks each makes a test fail (`v3` runs the 15-bug set); writes `MUTATION_RESULTS.md` | none (needs Rust) | 27/27 caught |
+| `npm run verify:offline` | Offline subset of the harness, including both proofs, both WASM hashes, MPC signature recovery, the recorded Hyperliquid acceptance, NO_TRADE and Hyperliquid vectors | none | 37 pass, 48 skipped (live-only) |
+| `npm run verify` | Everything above plus live read-only checks: NEAR RPC, `intents.near` `simulate_intents`, 1Click, Hyperliquid, both contracts' state, and every historical transaction re-fetched from an archival RPC | public endpoints | 95 checks |
+| `npm run hl:acceptance` | Offline by default: re-checks the **recorded** Hyperliquid responses in `hl-acceptance.json` against `testnet-proof.json` and writes nothing. `-- --live` posts the order and two corrupted copies to Hyperliquid **testnet** `/exchange` and writes only `hl-acceptance.local.json`. Hyperliquid remembers (signer, nonce), so a live repeat answers "duplicate nonce" and is reported as SPENT, not a pass. `-- --live --record` overwrites the recorded file only after a live PASS | offline: none; live: Hyperliquid testnet (POST, no NEAR tx, no funds) | 3 requests with `--live` |
 | `npm run build` | Production Next.js build | none | — |
 
 `npm run verify` exits non-zero if any check FAILs. A WARN means a live source was unreachable and a labelled fallback was used; SKIP only happens in offline mode. Public RPCs do rate-limit: the client fails over between FastNEAR and `rpc.*.near.org`, and a check that still can't reach the network fails rather than pretending to pass.
@@ -35,6 +39,30 @@ All read-only, via `EXPERIMENTAL_tx_status`, `view_account`, `view_access_key_li
 
 You can check the same things by hand on [Nearblocks](https://testnet.nearblocks.io/address/zerodelta-guard-fb604f.testnet) (Access Keys tab: none; Contract tab: methods).
 
+## 3b. Sections 10 and 11: Risk Guard v3 (superseded) and v3.1 (current)
+
+Section 11 runs the same checks for v3.1 (`testnet-proof.json`, `hl-acceptance.json`, `hl_vectors_v31.json`) and adds: the v3 proof is preserved byte-identically, the v3 findings are disclosed in the proof file, the stored market table carries the coin caps, the digest includes `expiresAfter`, and the size-inflation and over-long-expiry attacks were rejected on-chain with no MPC receipt. Section 10 is the same list for the superseded v3 and reads `proofs/hl-acceptance.v3.json`. The text below describes both.
+
+Offline (also run in CI):
+
+- **v2 history unchanged:** `proofs/testnet-proof.v2.json` hashes to `99a0feb3…` (the original v2 file), and `testnet-proof.json`'s `previousDeployment` equals it.
+- **v3 code and market table:** the committed v3 WASM hashes to the recorded code hash `CJ1BEUKB…`, and the stored market table is the Hyperliquid **testnet** table (BTC 3, ETH 4, SOL 0, NEAR 54).
+- **Recorded v3 digest == TS mirror rebuilt from the recorded request.** This is the binding proof: the same legs, prices and nonce produce exactly the action, digest and commitment the contract recorded and the MPC signed.
+- **Signature recovery:** the recorded `{r, s, v}` recovers to the pinned hedge address `0xef63…2c66`; flipped `v` does not.
+- **Recorded Hyperliquid acceptance:** `hl-acceptance.json` is PASS for the real signature and FAIL (different address) for both controls; each recovered address appears in the raw response and equals local recovery.
+- **The Rust parity fixture is current.**
+
+Live, read-only:
+
+- Every v3 transaction re-fetched from the archival RPC with the expected status and error: create, deploy + init + delete key, approved sign, `PRICE_OUT_OF_BAND`, `NONCE_ALREADY_USED`, `Method on_mpc_signed is private`.
+- No rejected v3 transaction has a receipt to `v1.signer-prod.testnet`; the approved one has the contract-originated `sign` receipt and returned the recorded `{r, s, v}`.
+- The v3 contract has 0 access keys, the recorded code hash, policy, market table, network, MPC target and solver.
+- Attestation #0 holds the built action, digest, commitment and Hyperliquid signature.
+- **The contract's own view rebuilds the same digest today** for the recorded request (and now rejects it because the nonce is used and stale).
+- The live `derived_public_key` for (v3 contract, `zerodelta/hedge/hyperliquid`) is the pinned address.
+
+The harness never posts to Hyperliquid; `npm run hl:acceptance -- --live` does that separately.
+
 ## 4. The committed report
 
 `npm run verify` writes its report to `verify-report.local.json` (git-ignored), so running it never dirties the repo. `npm run verify:report` writes the committed snapshot `verify-report.json` instead. Each report records:
@@ -46,4 +74,4 @@ A report can't name the commit that contains it, so a committed report always de
 
 ## 5. CI
 
-[`.github/workflows/verify.yml`](../.github/workflows/verify.yml) runs on every push and pull request: `npm ci`, typecheck, tests, build, offline verification (uploads `verify-report-offline-<sha>` as an artifact), and the Rust tests with a check that the deployed WASM is byte-unchanged. Live verification is a separate manual job (`workflow_dispatch` with `live = true`) because public RPC availability is outside the repo's control.
+[`.github/workflows/verify.yml`](../.github/workflows/verify.yml) runs on every push and pull request: `npm ci`, typecheck, tests, build, offline verification (uploads `verify-report-offline-<sha>` as an artifact), and the v2 and v3 Rust tests, with checks that both deployed WASM files and the original v2 proof file are byte-unchanged. Live verification is a separate manual job (`workflow_dispatch` with `live = true`) because public RPC availability is outside the repo's control.

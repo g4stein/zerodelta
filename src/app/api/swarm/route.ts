@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getLiveTelemetry } from "@/lib/near/rpcClient";
 import { getOnchainProofStatus } from "@/lib/near/riskGuardContract";
+import { getV3OnchainStatus } from "@/lib/near/riskGuardV3";
 import { runSwarm } from "@/lib/swarm/orchestrator";
 import { parseSwarmRequest } from "@/lib/swarm/types";
 
@@ -8,11 +9,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-/** GET /api/swarm — live NEAR RPC + Chain Signatures + 1Click telemetry + on-chain testnet proof status. */
+/** GET /api/swarm — live NEAR RPC + Chain Signatures + 1Click telemetry + on-chain testnet proof status (v2 and v3). */
 export async function GET() {
   try {
-    const [telemetry, onchain] = await Promise.all([getLiveTelemetry(), getOnchainProofStatus()]);
-    return NextResponse.json({ ...telemetry, onchain }, { headers: { "cache-control": "no-store" } });
+    const [telemetry, onchain, onchainV3] = await Promise.all([
+      getLiveTelemetry(),
+      getOnchainProofStatus(),
+      getV3OnchainStatus().catch((err) => ({ live: false, contractId: "", error: err instanceof Error ? err.message : String(err) })),
+    ]);
+    return NextResponse.json({ ...telemetry, onchain, onchainV3 }, { headers: { "cache-control": "no-store" } });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "telemetry failed" }, { status: 500 });
   }

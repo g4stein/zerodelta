@@ -21,6 +21,7 @@ import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { bytesToHex, concatBytes, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 import type { OrderParams } from "../near/orderCommitment";
+import { lotsToE8, sizeLots, toE8, wireE8 } from "./fixedPoint";
 
 /** Perp asset index and size decimals from Hyperliquid `info {type: "meta"}` (fetched 2026-11-09). */
 export const HYPERLIQUID_PERPS: Record<string, { asset: number; szDecimals: number }> = {
@@ -29,6 +30,19 @@ export const HYPERLIQUID_PERPS: Record<string, { asset: number; szDecimals: numb
   SOL: { asset: 5, szDecimals: 2 },
   NEAR: { asset: 74, szDecimals: 1 },
 };
+
+/**
+ * Hyperliquid TESTNET perp indices differ from mainnet. From
+ * https://api.hyperliquid-testnet.xyz/info {type: "meta"} fetched 2026-11-11T13:58:03Z.
+ * Never use mainnet indices for a testnet order; deploy scripts re-fetch and compare.
+ */
+export const HYPERLIQUID_PERPS_TESTNET: Record<string, { asset: number; szDecimals: number }> = {
+  BTC: { asset: 3, szDecimals: 5 },
+  ETH: { asset: 4, szDecimals: 4 },
+  SOL: { asset: 0, szDecimals: 2 },
+  NEAR: { asset: 54, szDecimals: 1 },
+};
+export const HYPERLIQUID_PERPS_TESTNET_FETCHED_AT = "2026-11-11T13:58:03Z";
 
 export type Tif = "Alo" | "Ioc" | "Gtc";
 
@@ -84,11 +98,15 @@ function u64be(n: number | bigint): Uint8Array {
   return out;
 }
 
-/** keccak256(msgpack(action) || nonce_u64_be || vault flag [|| vault address]) — SDK `action_hash` without expiresAfter. */
-export function actionHash(action: unknown, nonce: number | bigint, vaultAddress: string | null = null): Uint8Array {
+/**
+ * keccak256(msgpack(action) || nonce_u64_be || vault flag [|| vault address] [|| 0x00 || expiresAfter_u64_be])
+ * — the SDK's `action_hash`. `expiresAfter` (ms) is optional and, when present, is part of what gets signed.
+ */
+export function actionHash(action: unknown, nonce: number | bigint, vaultAddress: string | null = null, expiresAfter: number | bigint | null = null): Uint8Array {
   const packed = encode(action);
   const vault = vaultAddress === null ? new Uint8Array([0]) : concatBytes(new Uint8Array([1]), hexToBytes(vaultAddress.replace(/^0x/, "").toLowerCase()));
-  return keccak_256(concatBytes(packed, u64be(nonce), vault));
+  const expiry = expiresAfter === null ? new Uint8Array(0) : concatBytes(new Uint8Array([0]), u64be(expiresAfter));
+  return keccak_256(concatBytes(packed, u64be(nonce), vault, expiry));
 }
 
 const keccak = (b: Uint8Array) => keccak_256(b);
@@ -139,8 +157,11 @@ export interface HedgeBindingCheck {
  * `priceBandBps` of a trusted reference price (mark/oracle), and size × reference price
  * within `toleranceBps` of the approved perp-short notional.
  *
- * The reference price matters: an IOC sell fills at the bid, so checking size × limit price
- * alone would let 100× the size through at 1/100 of the price.
+ * Two notional checks, because the order is sized from the limit price (as the v3.1 contract does):
+ * (1) size × limit within `toleranceBps` of the approved notional (the contract's rule), and
+ * (2) size × reference within `toleranceBps + priceBandBps` of it. Check (1) alone would accept 100× the
+ * size at 1/100 of the price, because size × limit stays constant; check (2) catches that. Both report
+ * `NOTIONAL_MISMATCH`. Pass the matching market table (`HYPERLIQUID_PERPS_TESTNET` for testnet orders).
  */
 export function checkActionMatchesApprovedHedge(
   action: OrderAction,
@@ -148,9 +169,10 @@ export function checkActionMatchesApprovedHedge(
   referencePx: number,
   toleranceBps = 50,
   priceBandBps = 100,
+  perps: Record<string, { asset: number; szDecimals: number }> = HYPERLIQUID_PERPS,
 ): HedgeBindingCheck {
   const v: string[] = [];
-  const perp = HYPERLIQUID_PERPS[approved.asset_symbol];
+  const perp = perps[approved.asset_symbol];
   const approvedNotionalUsd = approved.perp_short_usd_cents / 100;
   if (!(referencePx > 0) || !Number.isFinite(referencePx)) v.push("NO_TRUSTED_REFERENCE_PRICE");
   if (!perp) v.push(`UNSUPPORTED_ASSET: ${approved.asset_symbol}`);
@@ -159,6 +181,7 @@ export function checkActionMatchesApprovedHedge(
   if (action.orders.length !== 1) v.push(`EXPECTED_ONE_ORDER: got ${action.orders.length}`);
   const o = action.orders[0];
   let notionalUsd = 0;
+  let notionalAtRefUsd = 0;
   if (o) {
     if (perp && o.a !== perp.asset) v.push(`WRONG_MARKET: asset ${o.a} != ${perp.asset} (${approved.asset_symbol})`);
     if (o.b !== false) v.push("WRONG_SIDE: hedge must be a SELL (short)");
@@ -170,20 +193,30 @@ export function checkActionMatchesApprovedHedge(
     if (referencePx > 0 && Math.abs(px - referencePx) / referencePx > priceBandBps / 10_000) {
       v.push(`PRICE_OUTSIDE_BAND: limit ${o.p} vs reference ${referencePx} (> ${priceBandBps} bps)`);
     }
-    notionalUsd = Number(o.s) * (referencePx > 0 ? referencePx : px);
+    notionalUsd = Number(o.s) * px;
+    notionalAtRefUsd = Number(o.s) * (referencePx > 0 ? referencePx : px);
   }
-  const deviationBps = approvedNotionalUsd > 0 ? (Math.abs(notionalUsd - approvedNotionalUsd) / approvedNotionalUsd) * 10_000 : Number.POSITIVE_INFINITY;
-  if (!(deviationBps <= toleranceBps)) v.push(`NOTIONAL_MISMATCH: ${notionalUsd.toFixed(2)} vs approved ${approvedNotionalUsd.toFixed(2)} (${deviationBps.toFixed(1)} bps)`);
+  const dev = (x: number) => (approvedNotionalUsd > 0 ? (Math.abs(x - approvedNotionalUsd) / approvedNotionalUsd) * 10_000 : Number.POSITIVE_INFINITY);
+  const deviationBps = dev(notionalUsd);
+  const deviationAtRefBps = dev(notionalAtRefUsd);
+  if (!(deviationBps <= toleranceBps)) v.push(`NOTIONAL_MISMATCH: size x limit ${notionalUsd.toFixed(2)} vs approved ${approvedNotionalUsd.toFixed(2)} (${deviationBps.toFixed(1)} bps)`);
+  else if (!(deviationAtRefBps <= toleranceBps + priceBandBps)) {
+    v.push(`NOTIONAL_MISMATCH: size x reference ${notionalAtRefUsd.toFixed(2)} vs approved ${approvedNotionalUsd.toFixed(2)} (${deviationAtRefBps.toFixed(1)} bps)`);
+  }
   return { ok: v.length === 0, violations: v, notionalUsd, approvedNotionalUsd, deviationBps };
 }
 
-/** Builds the IOC short that corresponds to an approved order at a given limit price. */
+/**
+ * Builds the IOC short that corresponds to an approved order at a given limit price.
+ * Size is the exact integer floor of notional / limit in whole lots (same as the v3 contract);
+ * an earlier float version could under-count by one lot at boundaries.
+ */
 export function buildHedgeAction(approved: Pick<OrderParams, "asset_symbol" | "perp_short_usd_cents">, limitPx: number): OrderAction {
   const perp = HYPERLIQUID_PERPS[approved.asset_symbol];
   if (!perp) throw new Error(`unsupported asset ${approved.asset_symbol}`);
-  const factor = 10 ** perp.szDecimals;
-  const sz = Math.floor(((approved.perp_short_usd_cents / 100) / limitPx) * factor) / factor;
-  return orderAction([orderWire({ asset: perp.asset, isBuy: false, limitPx, sz, reduceOnly: false, tif: "Ioc" })]);
+  const lots = sizeLots(approved.perp_short_usd_cents, toE8(limitPx), perp.szDecimals);
+  const wire = orderWire({ asset: perp.asset, isBuy: false, limitPx, sz: 0, reduceOnly: false, tif: "Ioc" });
+  return orderAction([{ ...wire, s: wireE8(lotsToE8(lots, perp.szDecimals)) }]);
 }
 
 /** Hex of the action hash, the value a future contract would have to bind to (see docs). */

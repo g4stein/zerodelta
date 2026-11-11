@@ -1,0 +1,41 @@
+# ZeroDelta Risk Guard v3 contract (deployed, locked, SUPERSEDED by v3.1)
+
+> A pre-merge audit found that this contract approves an order many times the intended size when the solver sets the limit and reference price low (size = notional ÷ limit; the band only compares with the solver's own reference). It cannot be patched (locked), so the fixed contract is [`../risk-guard-v31`](../risk-guard-v31/). This source and wasm are kept unchanged as history. See the README and `docs/SECURITY_MODEL.md` §7.5.
+
+Rust NEAR smart contract (near-sdk 5.5). v2 (`../risk-guard`, deployed and locked as `zerodelta-guard-fb604f.testnet`) has the MPC network sign a ZeroDelta order commitment. v3 has it sign an **executable Hyperliquid order**: the contract builds the order and computes its EIP-712 digest itself, then asks NEAR Chain Signatures to sign that digest.
+
+**The contract never accepts a digest or payload from the solver.** The solver sends raw legs and two prices. The contract builds the only action it will sign, msgpack-encodes it, computes `connectionId` and the phantom-agent digest, and sends that digest to the MPC signer. `expected_digest_hex` is optional and only compared: a mismatch rejects the request (`PAYLOAD_COMMITMENT_MISMATCH`), and the supplied value is never signed.
+
+## `sign_executable_hedge(request, request_mpc_sign?)` (solver only, payable)
+
+1. Caller must be the registered solver (`UNAUTHORIZED_SOLVER`); attestation hashes must be 64 lowercase hex (`MALFORMED_HASH`).
+2. The symbol must be in the per-network market table stored at deploy (`UNKNOWN_MARKET`). Testnet and mainnet indices differ (testnet BTC 3, ETH 4, SOL 0, NEAR 54; mainnet BTC 0, ETH 1, SOL 5, NEAR 74).
+3. Risk is recomputed from the raw legs as in v2 (`DELTA_NEUTRALITY`, `LEVERAGE_CEILING`, `SLIPPAGE_CEILING`, `INVALID_ORDER`). The hedge must have a perp short and no perp long.
+4. Prices, in units of 1e-8 USD: the limit `P` must be within `price_band_bps` of the reference `R` (`PRICE_OUT_OF_BAND`, `NO_REFERENCE_PRICE`) and obey Hyperliquid's rules: integer prices always valid, else at most 5 significant figures and at most `6 − szDecimals` decimals (`PRICE_ZERO`, `PRICE_TOO_MANY_SIG_FIGS`, `PRICE_TOO_MANY_DECIMALS`).
+5. Size is computed from the **limit** price: `S = floor(approved perp short / P)` in whole lots (exact integers), and `|S × P − approved perp short| ≤ notional_band_bps` (`NOTIONAL_DRIFT`, `SIZE_ZERO`, `SIZE_OVERFLOW`). The reference only anchors the band.
+6. The contract builds `{"type":"order","orders":[{"a":<market>,"b":false,"p":P,"s":S,"r":false,"t":{"limit":{"tif":"Ioc"}}}],"grouping":"na"}`, then `connectionId = keccak256(msgpack(action) ‖ nonce_u64_be ‖ 0x00)` and `digest = keccak256(0x19 0x01 ‖ domainSeparator(Exchange, 1, 1337, 0x0) ‖ keccak256(AgentType ‖ keccak256(source) ‖ connectionId))`, with `source` = `"b"` on testnet and `"a"` on mainnet.
+7. Nonce is the Hyperliquid nonce in **milliseconds**: `last_nonce < nonce`, `block_ms − max_nonce_age_ms ≤ nonce ≤ block_ms + max_nonce_future_ms`, `block_ms = block_timestamp_ns / 1_000_000` (`NONCE_ALREADY_USED`, `STALE_ORDER`, `FUTURE_NONCE`). v2 nonces were microseconds (`Date.now() × 1000`); one would be rejected as `FUTURE_NONCE`.
+8. The attestation stores the action JSON, `connectionId`, digest and `commitment = keccak256(zerodelta-hl-hedge-v3|contract|network|symbol|asset|legs…|P|R|S|nonce|digest)`.
+9. The caller pays the attestation's storage plus a 384-byte allowance for the signature, and the MPC deposit (1 yocto by default); the excess is refunded (`INSUFFICIENT_DEPOSIT`). With `request_mpc_sign`, attach ~300 Tgas (`INSUFFICIENT_GAS`); the contract calls `v1.signer-prod.testnet.sign` with `{payload_v2: {Ecdsa: digest}, path, domain_id: 0}`.
+10. `on_mpc_signed` stores `{big_r, s, recovery_id}` and the Hyperliquid `{r = x(big_r), s, v = recovery_id + 27}`.
+
+Without `request_mpc_sign` the request is checked and recorded but not signed, like v2's `record_rebalance` without the flag.
+
+Views: `preview_executable_hedge(request)` (every check, plus the action, digest and commitment, for free), `get_config`, `get_policy`, `get_markets`, `get_last_nonce`, `get_attestation_count`, `get_attestation(index)`, `get_attestations(from_index, limit)`.
+
+## Fixes to v2 findings
+
+- **F-1 nonce exhaustion:** a `u64::MAX` nonce is now `FUTURE_NONCE`, so it can't freeze the contract.
+- **F-2 storage exhaustion:** each accepted request pays for its own storage, so the contract's balance can't be drained by valid orders.
+
+## Trusted input
+
+`reference_px_e8` comes from the solver. A compromised solver can move the limit and the reference together, so the band limits the distance from the solver's own reference, not from the true market. **This is wrong for v3:** size = approved notional ÷ limit, so a low limit enlarges the position (confirmed by a read-only preview). Fixed in v3.1 with caps in coins.
+
+## Test
+
+```bash
+cargo test     # 44 tests: unit, official SDK vectors, TS parity (incl. 110 contract-level cases), adversarial
+```
+
+`tests/fixtures/hl_vectors.json` is generated by `npm run hl:vectors` from the TypeScript modules; `tests/hlParity.test.ts` fails if it is stale.

@@ -59,13 +59,29 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             contracts/risk-guard/target
-          key: cargo-${{ hashFiles('contracts/risk-guard/Cargo.lock') }}
+            contracts/risk-guard-v3/target
+            contracts/risk-guard-v31/target
+          key: cargo-${{ hashFiles('contracts/risk-guard/Cargo.lock', 'contracts/risk-guard-v3/Cargo.lock', 'contracts/risk-guard-v31/Cargo.lock') }}
       - name: cargo test (unit + adversarial)
         working-directory: contracts/risk-guard
+        run: cargo test --locked
+      - name: cargo test v3 (SDK vectors + TS parity)
+        working-directory: contracts/risk-guard-v3
+        run: cargo test --locked
+      - name: cargo test v3.1 (adversarial + SDK vectors + TS parity)
+        working-directory: contracts/risk-guard-v31
         run: cargo test --locked
       - name: Deployed WASM is unchanged
         run: |
           echo "51ada920b44f5653e8a9293ebac08fbeee3f2d280d77efacfede33b68ca71ce7  contracts/risk-guard/res/zerodelta_risk_guard.wasm" | sha256sum -c -
+      - name: Deployed v3 WASM and v2 proof history are unchanged
+        run: |
+          echo "02e49d42c9d4152196dbd054403f546839c14c8801174bbe6249eedd265999fb  contracts/risk-guard-v3/res/zerodelta_risk_guard_v3.wasm" | sha256sum -c -
+          echo "99a0feb37566af1578148481191cad69511b78f2bcac552f729cabb09b138581  proofs/testnet-proof.v2.json" | sha256sum -c -
+          echo "5de02ae720bb0995fbb07880d88153129b5d80a5e181e214f95bb06886a408c6  proofs/testnet-proof.v3.json" | sha256sum -c -
+      - name: Deployed v3.1 WASM is unchanged
+        run: |
+          echo "82447883708aaf5d64db5c8045b49d2ef71a591340105c24d78f58f2b51f61be  contracts/risk-guard-v31/res/zerodelta_risk_guard_v31.wasm" | sha256sum -c -
 
   live:
     name: live verification (optional)

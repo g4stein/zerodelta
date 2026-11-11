@@ -1,17 +1,23 @@
-# Demo video script (about 85 seconds)
+# Demo video script, v3.1 (about 110 seconds)
 
-Record [zerodelta.vercel.app](https://zerodelta.vercel.app/) full screen. Before recording, click each button once so the pages are warm, then reload. Use real clicks only; don't edit numbers into the video. Numbers change between runs because quotes are live; read what's on screen.
+A draft for you to record or animate. Nothing here has been published. Every number below is from the recorded proof (`testnet-proof.json`, `hl-acceptance.json`); on screen, show the real page and terminal rather than retyping numbers.
+
+Before recording: open [zerodelta.vercel.app](https://zerodelta.vercel.app/), wait until the v3.1 panel's top-right badges say *locked (0 keys)* and *attestation #0 Signed*, and open the approved transaction on Nearblocks in a second tab. In a terminal, `cd zerodelta && npm ci` so `npm run hl:acceptance` starts quickly.
 
 | Time | On screen | Say |
 |---|---|---|
-| 0:00–0:08 | Top of the page: "Autonomous strategies. Contract-enforced boundaries." | "An AI agent can propose a trade. But should it hold the treasury's signing key?" |
-| 0:08–0:25 | Click the amber **Simulate Compromised Solver**. Pause on the side-by-side panel. | "Here the solver is compromised. It reports a hedged order with zero delta, but what it actually asks to sign is a ten-times long. ZeroDelta recomputes the order's fingerprint, sees they don't match, and refuses." |
-| 0:25–0:43 | Point at column 4, then open the proof inspector's **On-chain proof** tab and show "Account locked: TRUE" and "Contract-computed delta". | "The same check runs inside a NEAR smart contract with no access keys. It recalculates delta and leverage from the raw order, checks the fingerprint and a one-time nonce, and only then asks NEAR's MPC network for a signature." |
-| 0:43–1:00 | Click the **Spoofed payload rejected** link (Nearblocks opens), go back, click **Approved + MPC sign** and show the receipt to `v1.signer-prod.testnet`. | "These are real testnet transactions. This attack failed with a commitment mismatch. And here the contract itself, not a person, called the signer, after its checks passed." |
-| 1:00–1:15 | Back on the dashboard, click the green **Execute** button. Show the ranking table and the negotiation box. | "Strategy is autonomous too: one agent ranks NEAR, Solana, Ethereum and Bitcoin by funding minus live trading costs, and the solver and scanner renegotiate the order size when slippage is too high. If nothing pays, it says no trade." |
-| 1:15–1:25 | Scroll back to the top. | "ZeroDelta: autonomous treasury strategies inside verifiable on-chain security boundaries. Built at NEAR HACKATHON." |
+| 0:00–0:10 | The page header: "Autonomous strategies. Contract-enforced boundaries." | "Would you give an AI agent the key to a trading account? One hijacked prompt, and the key signs whatever the attacker wants." |
+| 0:10–0:22 | Scroll to the v3.1 panel. Point at the top-right badges. | "In ZeroDelta the agents hold no key. The only signer is a NEAR smart contract with zero access keys, so nobody, not even us, can change its rules." |
+| 0:22–0:38 | Step 1 and step 2 of the panel. | "The solver sends raw legs: a SOL spot long and an equal perp short. The contract recomputes delta and leverage itself. Then it builds the only order it will sign: one IOC sell of 16.0016 ETH on Hyperliquid testnet, sized from the approved notional and checked against a per-market cap in coins and a one-hour expiry." |
+| 0:38–0:52 | Step 3: the digest and the green "recomputed in your browser" checks. | "It encodes that order exactly as Hyperliquid does and computes the signing digest on-chain. It never accepts a digest from the agent. Your browser rebuilds the same digest from the recorded request." |
+| 0:52–1:05 | Switch to the Nearblocks tab: the receipt `zerodelta-guard-v31-c6e71c.testnet → v1.signer-prod.testnet.sign`. | "Only then does the contract itself call NEAR Chain Signatures. The MPC network signs for the key derived from the contract's own account." |
+| 1:05–1:25 | Terminal: run `npm run hl:acceptance` (offline: it re-checks the recorded Hyperliquid answers). Let the three lines print. | "Now ask Hyperliquid. We posted the signed order to the testnet exchange once. It recovered the signer: 0xa74e, the contract's key. Flip one bit of the signature and it names a different address. That's signer recovery: the signature is the contract's. Hyperliquid remembers that nonce, so here we re-check the recorded answer." |
+| 1:25–1:40 | Back on the page: the links under the panel; click "size-inflation attack rejected". | "And the attacks fail on-chain: a solver that sets the price to a tenth to inflate the order size, a two-hour expiry, a replayed order, and a call to the private callback. None of them got a signature. (We found the size flaw in our own earlier version, disclosed it, and redeployed.)" |
+| 1:40–1:50 | The README's v3.1 table, or the repo URL. | "Testnet only: no funds moved, no order filled. Everything is reproducible with one verify command. ZeroDelta, built at NEAR HACKATHON." |
 
 Notes for honesty on camera:
-- Say "testnet" and "dry run" if you mention settlement; no funds move.
-- The on-chain transactions are historical (sent once); your clicks don't create them.
-- If the green button shows NO_TRADE, say so: "today nothing pays, so it stays in USDC." That's a feature. Tick the demo override to show the rest.
+
+- Say "testnet" and "no fill". Hyperliquid's answer was "User or API Wallet 0xef63… does not exist": the address in that answer is the proof, not an executed trade.
+- The transactions are historical (sent once by `scripts/testnet-setup-v31.ts`); page clicks don't create them.
+- If `npm run hl:acceptance` can't reach Hyperliquid while recording, show `hl-acceptance.json` instead and say it is the recorded run. Do not run `--live` on camera: it will say SPENT.
+- The v2 attack buttons (compromised solver, rogue 10x) still work; show one only if you have time left.

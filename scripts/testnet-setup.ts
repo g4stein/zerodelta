@@ -306,6 +306,7 @@ async function main() {
   const codeHash = (await viewAccount(G))!.code_hash;
   if (codeHash !== bs58.encode(wasmSha)) throw new Error(`on-chain code hash ${codeHash} != sha256(${WASM_PATH})`);
   const v1 = existsSync(PROOF_FILE) ? JSON.parse(readFileSync(PROOF_FILE, "utf8")) : null;
+  if (v1 && Number(v1.version ?? 1) >= 3) throw new Error(`testnet-proof.json is version ${v1.version}: refusing to overwrite a newer proof with the v2 setup script`);
   const previousDeployment =
     v1 && (v1.version ?? 1) === 1
       ? {
