@@ -16,34 +16,14 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { recoverAddress } from "./testnet-setup-v3";
+import { parseRecoveredAddress, classify, flipLowBit, verifyRecordedAcceptance, type Classification } from "../src/lib/hyperliquid/acceptance";
+export { parseRecoveredAddress, classify } from "../src/lib/hyperliquid/acceptance";
 
 const EXCHANGE = "https://api.hyperliquid-testnet.xyz/exchange";
 const RECORDED = "hl-acceptance.json";
 const LOCAL = "hl-acceptance.local.json";
 
 type Sig = { r: string; s: string; v: number };
-type Classification = "PASS" | "FAIL" | "OTHER" | "SPENT";
-
-export function parseRecoveredAddress(responseText: string): string | null {
-  let body: unknown;
-  try {
-    body = JSON.parse(responseText);
-  } catch {
-    return null;
-  }
-  const b = body as { status?: string; response?: unknown };
-  if (b.status !== "err" || typeof b.response !== "string") return null;
-  const m = b.response.match(/^User or API Wallet (0x[0-9a-fA-F]{40}) does not exist\.?$/);
-  return m ? m[1].toLowerCase() : null;
-}
-
-export function classify(recovered: string | null, expected: string, responseText = ""): Classification {
-  if (!recovered) return /duplicate nonce/i.test(responseText) ? "SPENT" : "OTHER";
-  return recovered === expected.toLowerCase() ? "PASS" : "FAIL";
-}
-
-const flipLowBit = (hex: string) => `0x${(BigInt(hex) ^ 1n).toString(16).padStart(64, "0")}`;
-
 const LIVE = process.argv.includes("--live");
 const RECORD = process.argv.includes("--record");
 
@@ -52,24 +32,13 @@ function verifyRecorded() {
   const proof = JSON.parse(readFileSync("testnet-proof.json", "utf8"));
   const rec = JSON.parse(readFileSync(RECORDED, "utf8"));
   const expected = String(proof.hedgeKey.evmAddress).toLowerCase();
-  const req = proof.approvedHedge.exchangeRequest as { signature: Sig };
-  const problems: string[] = [];
-  if (rec.verdict !== "PASS") problems.push(`recorded verdict is ${rec.verdict}`);
-  if (String(rec.expectedAddress).toLowerCase() !== expected) problems.push("recorded address differs from testnet-proof.json");
-  if (rec.digestHex !== proof.approvedHedge.digestHex) problems.push("recorded digest differs from testnet-proof.json");
-  if (JSON.stringify(rec.results?.[0]?.request?.signature) !== JSON.stringify(req.signature)) problems.push("recorded signature differs from testnet-proof.json");
-  if (recoverAddress(proof.approvedHedge.digestHex, req.signature) !== expected) problems.push("signature does not recover to the hedge address locally");
-  for (const r of rec.results ?? []) {
-    const want = r.role === "real" ? "PASS" : "FAIL";
-    if (r.classification !== want) problems.push(`${r.case}: ${r.classification}, expected ${want}`);
-    if (!r.hyperliquidAgreesWithLocalRecovery) problems.push(`${r.case}: Hyperliquid and local recovery disagree`);
-  }
-  console.log(`recorded run at ${rec.ranAt}: ${rec.results?.length} cases`);
-  for (const r of rec.results ?? []) console.log(`  ${r.classification.padEnd(5)} ${r.case}: Hyperliquid recovered ${r.recoveredAddress}`);
+  const problems = verifyRecordedAcceptance(proof, rec);
   if (problems.length) {
     console.error(`OFFLINE CHECK FAILED:\n - ${problems.join("\n - ")}`);
     process.exit(1);
   }
+  console.log(`recorded run at ${rec.ranAt}: ${rec.results?.length} cases`);
+  for (const r of rec.results ?? []) console.log(`  ${r.classification.padEnd(5)} ${r.case}: Hyperliquid recovered ${r.recoveredAddress}`);
   console.log(`OFFLINE CHECK PASSED: recorded Hyperliquid responses match testnet-proof.json (hedge address ${expected}). Nothing written. Use --live to post again (expect SPENT).`);
 }
 

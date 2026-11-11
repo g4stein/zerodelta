@@ -23,10 +23,11 @@
  *      guard-gated MPC    no older than 5 minutes; the sign request is routed via the contract
  */
 import nacl from "tweetnacl";
+import { verifyQuoteEvidence } from "../market/quoteService";
 import { keyToImplicitAddress } from "near-api-js";
 import { verifyNep413, INTENTS_CONTRACT, type IntentMessage } from "../near/nep413";
 import { HEDGE_DERIVATION_PATH as PATH, MPC_SIGNER_CONTRACT, RISK_GUARD_CONTRACT_ID, SOLVER_ACCOUNT_ID } from "../near/deployment";
-import { computeHedgePayloadHex, computeOrderMetrics, orderParamsFromPlan, sameOrder, type OrderParams } from "../near/orderCommitment";
+import { computeHedgePayloadHex, computeOrderMetrics, orderParamsFromPlan, sameOrder, toCents, type OrderParams } from "../near/orderCommitment";
 import { EXPECTED_SOLVER_MEASUREMENT, computeReportData, verifyAttestation, type AttestationVerification } from "../crypto/attestation";
 import { bytesToHex, fromBase64, hashObject, hexToBytes, sha256Hex } from "../crypto/encoding";
 import type { OrderSlice, SolverResult } from "./solverAgent";
@@ -152,23 +153,24 @@ const fmtUsd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDig
 
 export function computeRiskMetrics(plan: RebalancePlan, maxPriceImpactBps: number): RiskMetrics {
   const sum = (pred: (l: RebalancePlan["legs"][number]) => boolean) =>
-    plan.legs.filter(pred).reduce((s, l) => s + l.notionalUsd, 0);
+    plan.legs.filter(pred).reduce((s, l) => s + toCents(l.notionalUsd), 0) / 100;
   const spotLongUsd = sum((l) => l.kind === "SPOT" && l.side === "LONG");
   const perpShortUsd = sum((l) => l.kind === "PERP" && l.side === "SHORT");
   const perpLongUsd = sum((l) => l.kind === "PERP" && l.side === "LONG");
-  const netDeltaUsd = plan.legs.reduce((s, l) => s + l.deltaUsd, 0);
+  const netDeltaUsd = spotLongUsd + perpLongUsd - perpShortUsd;
   const totalNotionalUsd = sum((l) => l.kind === "SPOT" || l.kind === "PERP");
   const collateralUsd = plan.treasuryUsd;
+  const raw = computeOrderMetrics({ asset_symbol: "", treasury_usd_cents: toCents(plan.treasuryUsd), collateral_usd_cents: toCents(collateralUsd), spot_long_usd_cents: toCents(spotLongUsd), perp_short_usd_cents: toCents(perpShortUsd), perp_long_usd_cents: toCents(perpLongUsd), nonce: 1, quoted_slippage_bps: 0 });
   return {
     treasuryUsd: plan.treasuryUsd,
     spotLongUsd,
     perpShortUsd,
     perpLongUsd,
     netDeltaUsd,
-    netDeltaRatio: Math.abs(netDeltaUsd) / plan.treasuryUsd,
+    netDeltaRatio: raw.net_delta_bps / 10000,
     totalNotionalUsd,
     collateralUsd,
-    leverage: totalNotionalUsd / collateralUsd,
+    leverage: raw.leverage_x100 / 100,
     maxPriceImpactBps,
   };
 }
@@ -200,13 +202,22 @@ function checkEnvelope(solver: SolverResult, guardian: GuardianIdentity): { pass
       if (sha256Hex(opened) !== s.commitment) throw new Error(`slice ${s.index} commitment mismatch`);
       return JSON.parse(new TextDecoder().decode(opened)) as OrderSlice;
     });
-    const total = decrypted.reduce((s, x) => s + BigInt(x.amountIn), 0n);
     if (!spotQuote) throw new Error("no spot quote to compare slices against");
-    if (total.toString() !== spotQuote.amountIn) {
-      const usdc = (v: bigint | string) => (Number(v) / 1e6).toLocaleString("en-US", { maximumFractionDigits: 2 });
-      throw new Error(`slices spend ${usdc(total)} USDC but the quoted spot order is ${usdc(spotQuote.amountIn)} USDC`);
+    if (!Number.isSafeInteger(env.sliceCount) || env.sliceCount < 1 || env.sliceCount > 24 || decrypted.length !== env.sliceCount || solver.sliceCount !== env.sliceCount) throw new Error("slice count mismatch");
+    if (env.recipientBoxPublicKey !== guardian.boxPublicKeyHex) throw new Error("wrong envelope recipient");
+    const indices = new Set<number>();
+    let total = 0n; let minTotal = 0n; let previousRelease = -1;
+    for (let i = 0; i < decrypted.length; i++) {
+      const x = decrypted[i];
+      if (x.index !== i || env.slices[i].index !== i || indices.has(x.index)) throw new Error("slice index mismatch");
+      indices.add(x.index);
+      if (x.legId !== "spot-long" || x.originAsset !== USDC_NEAR_ASSET || x.destinationAsset !== spotAsset) throw new Error("slice assets differ from spot order");
+      if (![x.amountIn, x.minAmountOut].every(v => typeof v === "string" && /^[1-9][0-9]*$/.test(v))) throw new Error("slice amounts must be positive integers");
+      if (!Number.isSafeInteger(x.releaseAtOffsetSec) || x.releaseAtOffsetSec < 0 || x.releaseAtOffsetSec > 24 * 30 || x.releaseAtOffsetSec <= previousRelease) throw new Error("invalid slice release schedule");
+      previousRelease = x.releaseAtOffsetSec;
+      total += BigInt(x.amountIn); minTotal += BigInt(x.minAmountOut);
     }
-    if (decrypted.some((x) => x.destinationAsset !== spotAsset)) throw new Error("slice destination differs from plan asset");
+    if (total.toString() !== spotQuote.amountIn || minTotal.toString() !== spotQuote.minAmountOut) throw new Error("slice spend or minimum receipt differs from quote");
     const { envelopeHash, envelopeId, ...body } = env;
     if (hashObject(body) !== envelopeHash) throw new Error("envelope hash mismatch");
     return { pass: true, detail: `${decrypted.length} slices decrypted; commitments and totals match (${envelopeId})` };
@@ -238,6 +249,8 @@ function checkIntent(solver: SolverResult, verification: ReturnType<typeof verif
       const destination = q.legId === "spot-long" ? pair.spotAssetId : q.legId === "hedge-margin" ? USDC_ARB_ASSET : null;
       if (!destination || ids.has(q.legId) || q.originAsset !== USDC_NEAR_ASSET || q.destinationAsset !== destination) throw new Error("quote assets differ from the permitted plan");
       ids.add(q.legId);
+      const quotedLeg = solver.executablePlan.legs.find(l => l.id === q.legId);
+      if (!quotedLeg || !Number.isFinite(q.amountOutUsd) || Math.abs(quotedLeg.notionalUsd - q.amountOutUsd) > 0.011) throw new Error("quoted fill value differs from executable plan");
       if (![q.amountIn, q.minAmountOut, q.amountOut].every(x => typeof x === "string" && /^[1-9][0-9]*$/.test(x))) throw new Error("quote amounts must be positive integers");
       if (BigInt(q.minAmountOut) > BigInt(q.amountOut)) throw new Error("minimum receipt exceeds quote output");
       usdcOut += BigInt(q.amountIn);
@@ -283,6 +296,13 @@ export interface TrustedRunInputs {
 function checkBinding(solver: SolverResult, expected?: TrustedRunInputs): { pass: boolean; detail: string; expectedPayloadHex: string; recomputed: OrderParams } {
   let recomputed: OrderParams;
   try {
+    if (solver.planHash !== hashObject(solver.executablePlan)) throw new Error("PLAN_HASH_MISMATCH");
+    const ids = new Set<string>();
+    for (const leg of solver.executablePlan.legs) {
+      if (!Number.isFinite(leg.notionalUsd) || leg.notionalUsd < 0 || ids.has(leg.id)) throw new Error("invalid or duplicate leg");
+      ids.add(leg.id);
+      if (!((leg.kind === "SPOT" && leg.side === "LONG") || (leg.kind === "PERP" && (leg.side === "SHORT" || leg.side === "LONG")) || (leg.kind === "MARGIN" && leg.side === "TRANSFER"))) throw new Error("unsupported leg direction");
+    }
     recomputed = orderParamsFromPlan(solver.executablePlan, solver.maxPriceImpactBps, solver.order.nonce);
   } catch (err) {
     // Hostile input (unsafe integers, bad nonce) must be rejected, never crash the guard.
@@ -337,6 +357,8 @@ export function runGuardianAgent(input: {
   runId: string;
   /** Identity chosen by the orchestrator, never accepted from solver metadata. */
   expectedSignerId: string;
+  /** Explicit simulation-only opt-in; HTTP live runs never enable it. */
+  allowOfflineQuotes?: boolean;
   solver: SolverResult;
   trustedMeasurements?: string[];
   trustedEnclaveKeys: string[];
@@ -357,8 +379,13 @@ export function runGuardianAgent(input: {
   const { solver } = input;
   const guardian = getGuardianIdentity();
   const now = input.now ?? new Date();
-  const m = computeRiskMetrics(solver.executablePlan, solver.maxPriceImpactBps);
+  let m: RiskMetrics;
+  try { m = computeRiskMetrics(solver.executablePlan, solver.maxPriceImpactBps); }
+  catch { m = { treasuryUsd: 0, spotLongUsd: 0, perpShortUsd: 0, perpLongUsd: 0, netDeltaUsd: 0, netDeltaRatio: Infinity, totalNotionalUsd: 0, collateralUsd: 0, leverage: Infinity, maxPriceImpactBps: Infinity }; }
   const inv = evaluateRiskInvariants(m);
+  const quoteEvidenceOk = solver.quotes.length > 0 && solver.quotes.every(q => verifyQuoteEvidence(q, input.expectedSignerId, input.allowOfflineQuotes === true, now.getTime()));
+  const quoteImpact = Math.max(...solver.quotes.map(q => q.priceImpactBps));
+  const impactConsistent = Number.isFinite(quoteImpact) && quoteImpact >= 0 && Math.abs(quoteImpact - solver.maxPriceImpactBps) < 1e-9;
 
   const intentVerification = verifyNep413(solver.intent.signed);
   const attestation = verifyAttestation(solver.attestation, {
@@ -369,6 +396,7 @@ export function runGuardianAgent(input: {
       intentPayloadHash: intentVerification.payloadHashHex,
       planHash: hashObject(solver.executablePlan),
       hedgeOrderPayloadHex: solver.hedgeOrderPayloadHex,
+      quotesHash: hashObject(solver.quotes),
     }),
     now,
     maxAgeMs: RISK_POLICY.attestationMaxAgeMs,
@@ -377,6 +405,7 @@ export function runGuardianAgent(input: {
     .filter(([k, v]) => typeof v === "boolean" && k !== "valid" && !v)
     .map(([k]) => k);
   const intentCheck = checkIntent(solver, intentVerification, input.expectedSignerId, now);
+  if (!quoteEvidenceOk) { intentCheck.pass = false; intentCheck.detail = "QUOTE_EVIDENCE_INVALID: quote differs from trusted adapter evidence, is unavailable, expired or belongs to another run"; }
   const envCheck = checkEnvelope(solver, guardian);
   const binding = checkBinding(solver, input.expected);
   const replay = checkReplay(solver.order.nonce, input.lastAcceptedNonce === undefined ? 0 : input.lastAcceptedNonce, now);
@@ -403,7 +432,7 @@ export function runGuardianAgent(input: {
     {
       id: "SLIPPAGE_CEILING",
       label: "Slippage ceiling",
-      pass: inv.slippageOk && solver.quotes.every(q => q.validForAuthorization === true),
+      pass: inv.slippageOk && impactConsistent && quoteEvidenceOk,
       observed: `${m.maxPriceImpactBps.toFixed(2)} bps`,
       threshold: `<= ${RISK_POLICY.maxSlippageBps} bps`,
       formula: "max over legs of (refRate - sliceRate) / refRate, refRate = live $100 quote",
@@ -464,7 +493,7 @@ export function runGuardianAgent(input: {
   const decisionRecord = {
     runId: input.runId,
     decision,
-    planHash: solver.planHash,
+    planHash: hashObject(solver.executablePlan),
     intentPayloadHash: intentVerification.payloadHashHex,
     attestationReportHash: solver.attestation.reportHash,
     hedgeOrderPayloadHex: solver.hedgeOrderPayloadHex,
@@ -490,7 +519,7 @@ export function runGuardianAgent(input: {
           run_id: input.runId,
           order: solver.order,
           hedge_order_payload_hex: solver.hedgeOrderPayloadHex,
-          plan_hash: solver.planHash,
+          plan_hash: hashObject(solver.executablePlan),
           intent_payload_hash: solver.intent.payloadHashHex,
           attestation_report_hash: solver.attestation.reportHash,
           decision_hash: decisionHash,

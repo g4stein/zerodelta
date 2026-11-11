@@ -14,6 +14,7 @@
  * `simulate_intents`, and the guard-gated MPC request is prepared but not
  * broadcast. The one-time on-chain proof transactions live in testnet-proof.json.
  */
+import nacl from "tweetnacl";
 import { createEphemeralSigner } from "../near/nep413";
 import {
   fetchOneClickTokens,
@@ -43,7 +44,7 @@ import {
   runGuardianAgent,
   type GuardianDecision,
 } from "../agents/guardianAgent";
-import { hashObject, sha256Hex } from "../crypto/encoding";
+import { hashObject, sha256Hex, bytesToHex, hexToBytes } from "../crypto/encoding";
 import { checkOrderOnchain, getOnchainLastNonce, type OnchainOrderCheck } from "../near/riskGuardContract";
 import { LIMITS, PAIRS, type PairId, type RebalancePlan, type SwarmRequest } from "./types";
 
@@ -126,7 +127,7 @@ export interface SwarmRun {
   mpcAccount: DerivedMpcAccount | null;
   settlement: Settlement;
   steps: AgentStep[];
-  audit: { events: AuditEvent[]; rootHash: string };
+  audit: { events: AuditEvent[]; rootHash: string; seal: AuditSeal };
 }
 
 export interface RunOptions {
@@ -145,7 +146,7 @@ class AuditTrail {
     const at = new Date().toISOString();
     const dataHash = hashObject(data);
     const seq = this.events.length;
-    const hash = sha256Hex(`${this.prev}|${seq}|${at}|${agent}|${event}|${dataHash}`);
+    const hash = hashObject({ prevHash: this.prev, seq, at, agent, event, detail, dataHash });
     this.events.push({ seq, at, agent, event, detail, dataHash, prevHash: this.prev, hash });
     this.prev = hash;
   }
@@ -154,17 +155,29 @@ class AuditTrail {
   }
 }
 
-/** Recomputes the audit chain; returns true if no event was altered, removed or reordered. */
-export function verifyAuditChain(events: AuditEvent[]): boolean {
-  let prev = "0".repeat(64);
-  return events.every((e, i) => {
-    const ok =
-      e.seq === i &&
-      e.prevHash === prev &&
-      e.hash === sha256Hex(`${prev}|${e.seq}|${e.at}|${e.agent}|${e.event}|${e.dataHash}`);
-    prev = e.hash;
-    return ok;
-  });
+export interface AuditSeal {
+  domain: "zerodelta-audit-v2";
+  rootHash: string;
+  eventCount: number;
+  decisionHash: string;
+  signature: string;
+}
+
+/** Verifies a complete history against the signing identity and decision supplied by the caller.
+ * A caller must authenticate that identity separately (e.g. the decision served over HTTPS).
+ * This establishes integrity relative to that identity, not permanent on-chain anchoring. */
+export function verifyAuditChain(events: AuditEvent[], seal: AuditSeal, expectedPublicKey: string, expectedDecisionHash: string): boolean {
+  try {
+    if (!seal || seal.domain !== "zerodelta-audit-v2" || !events.length || events.length !== seal.eventCount || seal.decisionHash !== expectedDecisionHash) return false;
+    let prev = "0".repeat(64);
+    for (const [i, e] of events.entries()) {
+      if (e.seq !== i || e.prevHash !== prev || e.hash !== hashObject({ prevHash: prev, seq: e.seq, at: e.at, agent: e.agent, event: e.event, detail: e.detail, dataHash: e.dataHash })) return false;
+      prev = e.hash;
+    }
+    if (prev !== seal.rootHash) return false;
+    const { signature, ...message } = seal;
+    return nacl.sign.detached.verify(hexToBytes(hashObject(message)), hexToBytes(signature), hexToBytes(expectedPublicKey));
+  } catch { return false; }
 }
 
 async function timed<T>(fn: () => Promise<T> | T): Promise<{ value: T; startedAt: string; durationMs: number }> {
@@ -389,6 +402,7 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
     runGuardianAgent({
       runId,
       expectedSignerId: signer.accountId,
+      allowOfflineQuotes: !live,
       solver,
       trustedEnclaveKeys: [getSolverEnclave().publicKeyHex],
       lastAcceptedNonce,
@@ -506,6 +520,8 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
 
   const finished = new Date();
   audit.record("orchestrator", "RUN_FINISHED", `decision ${guardian.decision}`, { decisionHash: guardian.decisionHash });
+  const sealBody = { domain: "zerodelta-audit-v2" as const, rootHash: audit.rootHash, eventCount: audit.events.length, decisionHash: guardian.decisionHash };
+  const seal: AuditSeal = { ...sealBody, signature: bytesToHex(nacl.sign.detached(hexToBytes(hashObject(sealBody)), guardianId.signKeyPair.secretKey)) };
   const { tokens: _t, ...tokenMeta } = tokens;
   const { markets: _m, ...fundingMeta } = funding;
   return {
@@ -529,6 +545,6 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
     mpcAccount,
     settlement,
     steps,
-    audit: { events: audit.events, rootHash: audit.rootHash },
+    audit: { events: audit.events, rootHash: audit.rootHash, seal },
   };
 }

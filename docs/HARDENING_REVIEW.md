@@ -1,4 +1,6 @@
-# Solver boundary hardening and judge preview
+# PR #6: solver boundary hardening and judge preview
+
+Historical validation snapshot for the first hardening pass. The subsequent review found additional cases addressed in [SECOND_REVIEW.md](SECOND_REVIEW.md).
 
 This change addresses the review of main at `437e6f6` without changing the deployed contracts or recorded proofs.
 

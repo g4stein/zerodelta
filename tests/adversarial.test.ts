@@ -25,7 +25,7 @@ const plan = (pair: PairId = "ETH", treasuryUsd = 50_000) => runScannerAgent({ p
 const solve = (p: RebalancePlan, sliceCount = 4): Promise<SolverResult> =>
   runSolverAgent({ plan: p, sliceCount, tokens, signer: createEphemeralSigner(), guardianBoxPublicKey: getGuardianIdentity().boxPublicKeyHex, live: false });
 const guard = (solver: SolverResult, extra: Partial<Parameters<typeof runGuardianAgent>[0]> = {}) =>
-  runGuardianAgent({ runId: "adv", expectedSignerId: solver.signer.accountId, solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex], ...extra });
+  runGuardianAgent({ runId: "adv", expectedSignerId: solver.signer.accountId, allowOfflineQuotes: true, solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex], ...extra });
 
 afterEach(() => {
   vi.unstubAllGlobals();

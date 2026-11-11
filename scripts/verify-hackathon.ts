@@ -1,3 +1,4 @@
+import { verifyRecordedAcceptance } from "../src/lib/hyperliquid/acceptance";
 /**
  * ZeroDelta automated verification harness  —  `npm run verify`
  *
@@ -257,7 +258,7 @@ async function main() {
   );
   const offA = await runSwarm({ mode: "rebalance", pair: "AUTO", treasuryUsd: 50_000, sliceCount: "auto" }, { live: false });
   check("Offline hedged plan approved (8 invariants)", offA.guardian.decision === "APPROVED" && offA.guardian.checks.length === 8, `${offA.resolved.pair}: net delta ${(offA.guardian.metrics.netDeltaRatio * 100).toFixed(2)}%, leverage ${offA.guardian.metrics.leverage.toFixed(2)}x`);
-  const replay = runGuardianAgent({ runId: "replay", expectedSignerId: offA.solver.signer.accountId, solver: offA.solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex] });
+  const replay = runGuardianAgent({ runId: "replay", expectedSignerId: offA.solver.signer.accountId, allowOfflineQuotes: true, solver: offA.solver, trustedEnclaveKeys: [getSolverEnclave().publicKeyHex] });
   check("Offline replay of the approved order rejected", replay.decision === "REJECTED" && replay.violations.join() === "REPLAY_AND_MPC_GATE", replay.checks.find((c) => c.id === "REPLAY_AND_MPC_GATE")!.detail ?? "");
   const offB = await runSwarm({ mode: "rogue", pair: "NEAR", treasuryUsd: 50_000, sliceCount: 8 }, { live: false });
   check("Offline rogue 10x long rejected", offB.guardian.decision === "REJECTED" && offB.guardian.violations.includes("DELTA_NEUTRALITY") && offB.guardian.violations.includes("LEVERAGE_CEILING"), `violations: ${offB.guardian.violations.join(", ")}`);
@@ -315,7 +316,7 @@ async function main() {
       Boolean(req) && req!.contractId === RISK_GUARD_CONTRACT_ID && req!.forwardsTo.predecessor === RISK_GUARD_CONTRACT_ID && req!.forwardsTo.args.request.payload_v2.Ecdsa === computeHedgePayloadHex(RISK_GUARD_CONTRACT_ID, r.solver.order) && Boolean(r.mpcAccount?.evmAddress),
       `${req?.contractId}.record_rebalance -> ${MPC_CONTRACT}.sign(${req?.forwardsTo.args.request.payload_v2.Ecdsa.slice(0, 16)}…) -> hedge key ${r.mpcAccount?.evmAddress}`,
     );
-    check("  Approval proof + audit chain verify", verifyGuardianDecision(g) && verifyAuditChain(r.audit.events), `decision ${g.decisionHash.slice(0, 16)}…, audit root ${r.audit.rootHash.slice(0, 16)}…`);
+    check("  Approval proof + audit chain verify", verifyGuardianDecision(g) && verifyAuditChain(r.audit.events, r.audit.seal, g.guardianPublicKey, g.decisionHash), `decision ${g.decisionHash.slice(0, 16)}…, audit root ${r.audit.rootHash.slice(0, 16)}…`);
     const oc = r.onchainCheck;
     const ts = computeOrderMetrics(r.solver.order);
     check(
@@ -427,12 +428,7 @@ async function main() {
     const recFlip = recoverAddress(v3.approvedHedge.digestHex, { ...sig3, v: sig3.v === 27 ? 28 : 27 });
     check("v3 MPC signature recovers to the pinned hedge address; flipped v does not (offline)", rec3 === v3.hedgeKey.evmAddress.toLowerCase() && recFlip !== rec3, `${v3.hedgeKey.path} -> ${rec3}`);
     const acc = JSON.parse(readFileSync("proofs/hl-acceptance.v3.json", "utf8"));
-    const accOk =
-      acc.verdict === "PASS" &&
-      acc.expectedAddress === v3.hedgeKey.evmAddress.toLowerCase() &&
-      acc.digestHex === v3.approvedHedge.digestHex &&
-      acc.results.map((x: { classification: string }) => x.classification).join() === "PASS,FAIL,FAIL" &&
-      acc.results.every((x: { recoveredAddress: string; request: { signature: { r: string; s: string; v: number } }; rawResponse: string }) => x.recoveredAddress === recoverAddress(v3.approvedHedge.digestHex, x.request.signature) && x.rawResponse.includes(x.recoveredAddress));
+    const accOk = verifyRecordedAcceptance(v3, acc).length === 0;
     check(
       "Hyperliquid testnet /exchange recovered the hedge address from the MPC signature (recorded)",
       accOk,
@@ -532,12 +528,7 @@ async function main() {
     const recFlip = recoverAddress(v31.approvedHedge.digestHex, { ...sig31, v: sig31.v === 27 ? 28 : 27 });
     check("v3.1 MPC signature recovers to the pinned hedge address; flipped v does not (offline)", rec31 === v31.hedgeKey.evmAddress.toLowerCase() && recFlip !== rec31, `${v31.hedgeKey.path} -> ${rec31}`);
     const acc = JSON.parse(readFileSync("hl-acceptance.json", "utf8"));
-    const accOk =
-      acc.verdict === "PASS" &&
-      acc.expectedAddress === v31.hedgeKey.evmAddress.toLowerCase() &&
-      acc.digestHex === v31.approvedHedge.digestHex &&
-      acc.results.map((x: { classification: string }) => x.classification).join() === "PASS,FAIL,FAIL" &&
-      acc.results.every((x: { recoveredAddress: string; request: { signature: { r: string; s: string; v: number } }; rawResponse: string }) => x.recoveredAddress === recoverAddress(v31.approvedHedge.digestHex, x.request.signature) && x.rawResponse.includes(x.recoveredAddress));
+    const accOk = verifyRecordedAcceptance(v31, acc).length === 0;
     check(
       "Hyperliquid testnet /exchange recovered the hedge address from the MPC signature (recorded)",
       accOk,
