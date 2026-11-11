@@ -79,21 +79,109 @@ fn every_order_action_matches_ts_byte_for_byte() {
 }
 
 #[test]
-fn sizing_is_exact_and_matches_ts_except_float_boundary_cases() {
+fn exact_sizing_matches_ts() {
     let v = v();
     let cases = v["sizing"].as_array().unwrap();
-    let mut float_boundary = 0;
-    for c in cases {
-        let lots = hl::size_lots(u(&c["cents"]), u(&c["pxE8"]), u(&c["szDecimals"]) as u8).unwrap();
-        // Rust is always the exact integer floor
-        assert_eq!(lots, u(&c["exactLots"]), "{}", c);
-        // The TS float version agrees except where float error lands just under a lot boundary
-        let ts = u(&c["tsLots"]);
-        if ts != lots {
-            assert_eq!(lots, ts + 1, "float may only under-count by one lot: {}", c);
-            float_boundary += 1;
-        }
-    }
     assert!(cases.len() >= 400);
-    assert!(float_boundary * 50 < cases.len(), "float/exact disagreements are rare boundary cases ({})", float_boundary);
+    for c in cases {
+        let szd = u(&c["szDecimals"]) as u8;
+        let lots = hl::size_lots(u(&c["cents"]), u(&c["pxE8"]), szd).unwrap();
+        assert_eq!(lots, u(&c["lots"]), "{}", c);
+        assert_eq!(hl::lots_to_e8(lots, szd).unwrap(), u(&c["sizeE8"]), "{}", c);
+    }
+}
+
+#[test]
+fn price_rules_match_ts() {
+    let v = v();
+    let cases = v["priceRules"].as_array().unwrap();
+    assert!(cases.len() >= 100);
+    let mut rejected = 0;
+    for c in cases {
+        let got = hl::check_perp_price(u(&c["pxE8"]), u(&c["szDecimals"]) as u8).err();
+        let want = c["violation"].as_str().map(|s| s.to_string());
+        if want.is_some() {
+            rejected += 1;
+        }
+        assert_eq!(got, want, "{}", c);
+    }
+    assert!(rejected > 20 && rejected < cases.len() - 20, "both valid and invalid prices are covered");
+}
+
+mod contract_level {
+    use super::*;
+    use near_sdk::test_utils::VMContextBuilder;
+    use near_sdk::{testing_env, AccountId, NearToken};
+    use zerodelta_risk_guard_v3::{HedgeRequest, Market, OrderParams, Policy, RiskGuardV3};
+
+    fn policy() -> Policy {
+        Policy { max_delta_bps: 200, max_leverage_x100: 300, max_slippage_bps: 25, price_band_bps: 100, notional_band_bps: 50, max_nonce_age_ms: 300_000, max_nonce_future_ms: 60_000 }
+    }
+
+    fn markets(p: &Value, net: &str) -> Vec<Market> {
+        p["markets"][net]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| Market { symbol: m["symbol"].as_str().unwrap().into(), asset: u(&m["asset"]) as u32, sz_decimals: u(&m["sz_decimals"]) as u8 })
+            .collect()
+    }
+
+    #[test]
+    fn contract_builds_exactly_what_the_ts_mirror_predicts() {
+        let v = v();
+        let p = &v["v3Parity"];
+        let contract_id: AccountId = p["contractId"].as_str().unwrap().parse().unwrap();
+        let block_ms = u(&p["blockTimeMs"]);
+        let mut b = VMContextBuilder::new();
+        b.current_account_id(contract_id.clone()).predecessor_account_id(contract_id).block_timestamp(block_ms * 1_000_000).attached_deposit(NearToken::from_yoctonear(0));
+        testing_env!(b.build());
+        let tn = RiskGuardV3::new("solver.testnet".parse().unwrap(), policy(), "testnet".into(), markets(p, "testnet"), "2026-11-11T13:58:03Z".into(), None, None, None);
+        let mn = RiskGuardV3::new("solver.testnet".parse().unwrap(), policy(), "mainnet".into(), markets(p, "mainnet"), "2026-11-09".into(), None, None, None);
+
+        let cases = v["hedges"].as_array().unwrap();
+        assert!(cases.len() >= 100);
+        let mut approved = 0;
+        for c in cases {
+            let o = &c["order"];
+            let req = HedgeRequest {
+                run_id: "parity".into(),
+                order: OrderParams {
+                    asset_symbol: o["asset_symbol"].as_str().unwrap().into(),
+                    treasury_usd_cents: u(&o["treasury_usd_cents"]),
+                    spot_long_usd_cents: u(&o["spot_long_usd_cents"]),
+                    perp_short_usd_cents: u(&o["perp_short_usd_cents"]),
+                    perp_long_usd_cents: u(&o["perp_long_usd_cents"]),
+                    collateral_usd_cents: u(&o["collateral_usd_cents"]),
+                    quoted_slippage_bps: u(&o["quoted_slippage_bps"]) as u32,
+                    nonce: u(&o["nonce"]),
+                },
+                limit_px_e8: u(&c["limitPxE8"]),
+                reference_px_e8: u(&c["referencePxE8"]),
+                expected_digest_hex: None,
+                plan_hash: "a".repeat(64),
+                intent_payload_hash: "b".repeat(64),
+                attestation_report_hash: "c".repeat(64),
+                decision_hash: "d".repeat(64),
+            };
+            let g = if c["hlNetwork"] == "mainnet" { &mn } else { &tn };
+            let e = g.preview_executable_hedge(req);
+            let why = format!("{} / {}", c["why"], c["hlNetwork"]);
+            let want: Vec<String> = c["violations"].as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_string()).collect();
+            assert_eq!(e.violations, want, "{}", why);
+            assert_eq!(e.size_e8, u(&c["sizeE8"]), "{}", why);
+            assert_eq!(e.price_deviation_bps, u(&c["priceDeviationBps"]), "{}", why);
+            assert_eq!(e.notional_drift_bps, u(&c["notionalDriftBps"]), "{}", why);
+            assert_eq!(e.action_json, c["actionJson"].as_str().unwrap(), "{}", why);
+            assert_eq!(e.connection_id_hex, c["connectionIdHex"].as_str().unwrap(), "{}", why);
+            assert_eq!(e.digest_hex, c["digestHex"].as_str().unwrap(), "{}", why);
+            assert_eq!(e.commitment_hex, c["commitmentHex"].as_str().unwrap(), "{}", why);
+            if e.approved {
+                approved += 1;
+                // the built action's msgpack is the TS msgpack
+                assert!(!c["msgpackHex"].as_str().unwrap().is_empty());
+            }
+        }
+        assert!(approved >= 80 && approved < cases.len(), "approved {} of {}", approved, cases.len());
+    }
 }

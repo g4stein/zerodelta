@@ -21,6 +21,7 @@ import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { bytesToHex, concatBytes, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 import type { OrderParams } from "../near/orderCommitment";
+import { lotsToE8, sizeLots, toE8, wireE8 } from "./fixedPoint";
 
 /** Perp asset index and size decimals from Hyperliquid `info {type: "meta"}` (fetched 2026-11-09). */
 export const HYPERLIQUID_PERPS: Record<string, { asset: number; szDecimals: number }> = {
@@ -29,6 +30,19 @@ export const HYPERLIQUID_PERPS: Record<string, { asset: number; szDecimals: numb
   SOL: { asset: 5, szDecimals: 2 },
   NEAR: { asset: 74, szDecimals: 1 },
 };
+
+/**
+ * Hyperliquid TESTNET perp indices differ from mainnet. From
+ * https://api.hyperliquid-testnet.xyz/info {type: "meta"} fetched 2026-11-11T13:58:03Z.
+ * Never use mainnet indices for a testnet order; deploy scripts re-fetch and compare.
+ */
+export const HYPERLIQUID_PERPS_TESTNET: Record<string, { asset: number; szDecimals: number }> = {
+  BTC: { asset: 3, szDecimals: 5 },
+  ETH: { asset: 4, szDecimals: 4 },
+  SOL: { asset: 0, szDecimals: 2 },
+  NEAR: { asset: 54, szDecimals: 1 },
+};
+export const HYPERLIQUID_PERPS_TESTNET_FETCHED_AT = "2026-11-11T13:58:03Z";
 
 export type Tif = "Alo" | "Ioc" | "Gtc";
 
@@ -177,13 +191,17 @@ export function checkActionMatchesApprovedHedge(
   return { ok: v.length === 0, violations: v, notionalUsd, approvedNotionalUsd, deviationBps };
 }
 
-/** Builds the IOC short that corresponds to an approved order at a given limit price. */
+/**
+ * Builds the IOC short that corresponds to an approved order at a given limit price.
+ * Size is the exact integer floor of notional / limit in whole lots (same as the v3 contract);
+ * an earlier float version could under-count by one lot at boundaries.
+ */
 export function buildHedgeAction(approved: Pick<OrderParams, "asset_symbol" | "perp_short_usd_cents">, limitPx: number): OrderAction {
   const perp = HYPERLIQUID_PERPS[approved.asset_symbol];
   if (!perp) throw new Error(`unsupported asset ${approved.asset_symbol}`);
-  const factor = 10 ** perp.szDecimals;
-  const sz = Math.floor(((approved.perp_short_usd_cents / 100) / limitPx) * factor) / factor;
-  return orderAction([orderWire({ asset: perp.asset, isBuy: false, limitPx, sz, reduceOnly: false, tif: "Ioc" })]);
+  const lots = sizeLots(approved.perp_short_usd_cents, toE8(limitPx), perp.szDecimals);
+  const wire = orderWire({ asset: perp.asset, isBuy: false, limitPx, sz: 0, reduceOnly: false, tif: "Ioc" });
+  return orderAction([{ ...wire, s: wireE8(lotsToE8(lots, perp.szDecimals)) }]);
 }
 
 /** Hex of the action hash, the value a future contract would have to bind to (see docs). */

@@ -20,6 +20,9 @@ import {
   type OrderAction,
 } from "../src/lib/hyperliquid/exchangeSigning";
 import { TESTNET_PROOF } from "../src/lib/near/riskGuardContract";
+import { HYPERLIQUID_PERPS_TESTNET } from "../src/lib/hyperliquid/exchangeSigning";
+import { checkPerpPrice, toE8, wireE8 } from "../src/lib/hyperliquid/fixedPoint";
+import { buildV3Hedge, v3CommitmentPreimage, v3NonceViolations } from "../src/lib/hyperliquid/v3Hedge";
 import { computeHedgePayloadHex } from "../src/lib/near/orderCommitment";
 
 const SDK_TEST_KEY = "0x0123456789012345678901234567890123456789012345678901234567890123";
@@ -140,5 +143,42 @@ describe("Binding an executable Hyperliquid order to the approved hedge (offline
     const zerodeltaPayload = computeHedgePayloadHex(TESTNET_PROOF.contract.accountId, approved);
     expect(zerodeltaPayload).toBe(TESTNET_PROOF.mpcSignature.payloadHex);
     for (const nonce of [0, approved.nonce]) expect(bytesToHex(actionHash(action, nonce))).not.toBe(zerodeltaPayload);
+  });
+});
+
+describe("Exact sizing and the v3 on-chain build mirror (offline)", () => {
+  it("buildHedgeAction sizes with exact integers (the float version under-counted by one lot)", () => {
+    // $0.99 of ETH at 100: exactly 0.0099 ETH; the old float floor gave 0.0098
+    expect(buildHedgeAction({ asset_symbol: "ETH", perp_short_usd_cents: 99 }, 100).orders[0].s).toBe("0.0099");
+    // the v2 demo order is unchanged
+    expect(buildHedgeAction(TESTNET_PROOF.approvedOrder.order, 3.6).orders[0].s).toBe("9242.5");
+  });
+
+  it("fixed-point helpers match float_to_wire and the price rules", () => {
+    expect(wireE8(toE8(1670.1))).toBe(floatToWire(1670.1));
+    expect(wireE8(toE8("0.0147"))).toBe("0.0147");
+    expect(checkPerpPrice(toE8("74423.5"), 5)).toMatch(/PRICE_TOO_MANY_SIG_FIGS/);
+    expect(checkPerpPrice(toE8("123456"), 5)).toBeNull();
+    expect(() => toE8("1e5")).toThrow();
+  });
+
+  it("v3 builds a testnet order on the testnet index and binds the digest in its commitment", () => {
+    const market = { symbol: "BTC", asset: HYPERLIQUID_PERPS_TESTNET.BTC.asset, sz_decimals: 5 };
+    const order = { asset_symbol: "BTC", treasury_usd_cents: 1_000_000, spot_long_usd_cents: 665_551, perp_short_usd_cents: 665_551, perp_long_usd_cents: 0, collateral_usd_cents: 1_000_000, quoted_slippage_bps: 2, nonce: 1794405482425 };
+    const b = buildV3Hedge("zerodelta-guard-v3.testnet", "testnet", market, order, toE8("74000"), toE8("74363"), { price_band_bps: 100, notional_band_bps: 50 });
+    expect(b.violations).toEqual([]);
+    expect(b.actionJson).toBe('{"type":"order","orders":[{"a":3,"b":false,"p":"74000","s":"0.08993","r":false,"t":{"limit":{"tif":"Ioc"}}}],"grouping":"na"}');
+    expect(v3CommitmentPreimage("zerodelta-guard-v3.testnet", "testnet", order, market, toE8("74000"), toE8("74363"), b.sizeE8, b.digestHex).endsWith(`|${order.nonce}|${b.digestHex}`)).toBe(true);
+    const mainnet = buildV3Hedge("zerodelta-guard-v3.testnet", "mainnet", { ...market, asset: 0 }, order, toE8("74000"), toE8("74363"), { price_band_bps: 100, notional_band_bps: 50 });
+    expect(mainnet.digestHex).not.toBe(b.digestHex);
+    expect(buildV3Hedge("x", "testnet", market, order, toE8("72000"), toE8("74363"), { price_band_bps: 100, notional_band_bps: 50 }).violations[0]).toMatch(/PRICE_OUT_OF_BAND/);
+  });
+
+  it("v3 nonce rule is in milliseconds with inclusive edges", () => {
+    const now = 1794405483425n;
+    expect(v3NonceViolations(now, 0n, now, 300_000n, 60_000n)).toEqual([]);
+    expect(v3NonceViolations(now - 300_001n, 0n, now, 300_000n, 60_000n)[0]).toMatch(/STALE_ORDER/);
+    expect(v3NonceViolations(now * 1000n, 0n, now, 300_000n, 60_000n)[0]).toMatch(/FUTURE_NONCE/); // a v2 microsecond nonce
+    expect(v3NonceViolations(now, now, now, 300_000n, 60_000n)[0]).toMatch(/NONCE_ALREADY_USED/);
   });
 });
