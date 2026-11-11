@@ -388,6 +388,7 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
   const guard = await timed(() =>
     runGuardianAgent({
       runId,
+      expectedSignerId: signer.accountId,
       solver,
       trustedEnclaveKeys: [getSolverEnclave().publicKeyHex],
       lastAcceptedNonce,

@@ -66,6 +66,8 @@ export interface LegQuote {
   quoteSignature?: string;
   correlationId?: string;
   liveError?: string;
+  /** False when a live quote or its independent reference could not be validated. */
+  validForAuthorization: boolean;
 }
 
 export interface OrderSlice {
@@ -198,7 +200,8 @@ async function quoteLeg(args: {
       });
     // Quote one real slice, plus a $100 reference quote at the same moment.
     const [r, ref] = await Promise.all([request(sampleIn), request(REFERENCE_QUOTE_USDC)]);
-    if (r.live && r.quote) {
+    // fetchOneClickQuote validates amounts and provider timestamps before returning live data.
+    if (r.live && ref.live && r.quote && ref.quote) {
       // Remaining equal slices are scaled from the live slice quote.
       const scale = (v: bigint) => (v * totalIn) / sampleIn;
       const out = scale(BigInt(r.quote.amountOut));
@@ -206,10 +209,11 @@ async function quoteLeg(args: {
       const inUsd = (Number(r.quote.amountInUsd) * Number(totalIn)) / Number(sampleIn);
       const outUsd = (Number(r.quote.amountOutUsd) * Number(totalIn)) / Number(sampleIn);
       const sliceRate = Number(r.quote.amountOut) / Number(sampleIn);
-      const refRate = ref.quote ? Number(ref.quote.amountOut) / Number(REFERENCE_QUOTE_USDC) : sliceRate;
+      const refRate = Number(ref.quote.amountOut) / Number(REFERENCE_QUOTE_USDC);
       return {
         ...base,
         source: "1click-live",
+        validForAuthorization: true,
         amountOut: out.toString(),
         minAmountOut: minOut.toString(),
         amountInUsd: inUsd,
@@ -220,10 +224,9 @@ async function quoteLeg(args: {
         totalCostBps: round2(((inUsd - outUsd) / inUsd) * 10_000),
         quoteSignature: r.quoteSignature,
         correlationId: r.correlationId,
-        ...(ref.quote ? {} : { liveError: `reference quote unavailable: ${ref.error}` }),
       };
     }
-    liveError = r.error;
+    liveError = r.error ?? ref.error ?? "live quote or reference contains invalid amounts";
   }
 
   const inPrice = tokenInfo(tokens, USDC_NEAR_ASSET)?.price ?? 1;
@@ -236,6 +239,7 @@ async function quoteLeg(args: {
   return {
     ...base,
     source: "local-fallback",
+    validForAuthorization: !args.live,
     amountOut: out.toString(),
     minAmountOut: minOut.toString(),
     amountInUsd: inUsd,

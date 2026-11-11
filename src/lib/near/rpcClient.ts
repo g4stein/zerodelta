@@ -507,6 +507,14 @@ export async function fetchOneClickQuote(
     );
     const body = (await res.json().catch(() => ({}))) as Partial<RawQuoteResponse>;
     if (!res.ok || !body.quote) throw new Error(body.message ?? `HTTP ${res.status}`);
+    const q = body.quote;
+    if (q.amountIn !== request.amount || ![q.amountIn, q.amountOut, q.minAmountOut].every(x => typeof x === "string" && /^[1-9][0-9]*$/.test(x)) || BigInt(q.minAmountOut) > BigInt(q.amountOut) || ![q.amountInUsd, q.amountOutUsd].every(x => Number.isFinite(Number(x)) && Number(x) > 0)) {
+      throw new Error("invalid quote amounts");
+    }
+    if (body.timestamp !== undefined) {
+      const age = Date.now() - Date.parse(body.timestamp);
+      if (!Number.isFinite(age) || age < -5000 || age > 60000) throw new Error("quote timestamp is stale or invalid");
+    }
     const appFeeBps = (body.quoteRequest?.appFees ?? []).reduce((s, f) => s + (f.fee ?? 0), 0);
     return {
       live: true,

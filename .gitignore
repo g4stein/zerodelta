@@ -17,3 +17,5 @@ verify-report.local.json
 verify-report.offline.json
 verify-report.live.json
 hl-acceptance.local.json
+
+contracts/risk-guard-v31/target/

@@ -93,16 +93,16 @@ export function V3ExecutableProof({ onchainV3 }: { onchainV3?: V3OnchainStatus |
 
   return (
     <Card className="mt-6 border-emerald-500/30 p-5" aria-label="Risk Guard v3.1 executable Hyperliquid signature">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="max-w-3xl">
+      <div className="flex flex-col gap-3">
+        <div className="max-w-none">
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone="emerald">v3.1</Badge>
             <h2 className="text-base font-semibold text-white sm:text-lg">Hyperliquid testnet recovered the contract&apos;s hedge address from the MPC signature</h2>
           </div>
           <p className="mt-1.5 text-sm leading-relaxed text-slate-400">
-            The locked v3.1 contract builds the Hyperliquid order itself from the approved legs, computes its EIP-712 digest, and checks per-market size caps, a rolling window and a one-hour expiry, and only then asks NEAR Chain Signatures to sign it.
-            Hyperliquid&apos;s <span className="font-mono">/exchange</span> recovered exactly the contract&apos;s MPC-derived address; a flipped <span className="font-mono">v</span> and a flipped bit of{" "}
-            <span className="font-mono">s</span> recover different addresses. Signer recovery only: no funds, no fill, because that address has no Hyperliquid account. The swarm demo and the v2 attack demos below run against the v2 contract; v3.1 is the signing path. The earlier v3 deployment is superseded (its size-inflation flaw is disclosed in the README).
+            Historical proof: the locked NEAR contract built a size-capped Hyperliquid testnet order, computed its digest and requested an MPC signature.
+            Hyperliquid recovered the contract&apos;s hedge address from that signature; two corrupted controls recovered different addresses.
+            This proves signer recovery, not a fill. No funds moved. The swarm below uses v2; the current signing proof is v3.1.
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2 text-[11px]">

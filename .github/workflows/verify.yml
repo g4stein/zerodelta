@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust 1.81 (matches the deployed build)
-        run: rustup toolchain install 1.81.0 --profile minimal && rustup default 1.81.0
+        run: rustup toolchain install 1.81.0 --profile minimal && rustup default 1.81.0 && rustup target add wasm32-unknown-unknown --toolchain 1.81.0
       - uses: actions/cache@v4
         with:
           path: |
@@ -71,6 +71,8 @@ jobs:
       - name: cargo test v3.1 (adversarial + SDK vectors + TS parity)
         working-directory: contracts/risk-guard-v31
         run: cargo test --locked
+      - name: Rebuild source and compare all deployed WASM bytes
+        run: bash scripts/verify-wasm.sh
       - name: Deployed WASM is unchanged
         run: |
           echo "51ada920b44f5653e8a9293ebac08fbeee3f2d280d77efacfede33b68ca71ce7  contracts/risk-guard/res/zerodelta_risk_guard.wasm" | sha256sum -c -

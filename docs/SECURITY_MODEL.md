@@ -181,4 +181,12 @@ On-chain proof of the audit attack: limit = reference = 1/10 of the market price
 
 **`expiresAfter` bound.** The contract limits expiry to one hour. Hyperliquid also accepts nonces several days old, so `expiresAfter` is the only time bound the signature carries; after it passes, Hyperliquid rejects the order. An hour is a judgment call, not a derived number.
 
-**Evidence.** 55 Rust tests; [`MUTATION_RESULTS.md`](../contracts/risk-guard-v31/MUTATION_RESULTS.md): 27 of 27 deliberate bugs caught. CI checks the committed v3.1 wasm hash, but does not rebuild the wasm from source, so the source-to-wasm link rests on the recorded code hash and the local build.
+**Evidence.** 55 Rust tests; [`MUTATION_RESULTS.md`](../contracts/risk-guard-v31/MUTATION_RESULTS.md): 27 of 27 deliberate bugs caught. CI rebuilds all three contracts with pinned Rust 1.81.0 and locked dependencies, remaps dependency panic-location paths to the historical prefix, and compares every byte against the committed deployed WASM (`scripts/verify-wasm.sh`). It also checks the fixed historical hashes.
+
+## 9. Off-chain intent and quote hardening
+
+The guardian recomputes the NEP-413 hash from the signed bytes and uses that value for attestation and decision binding. The hash must match the solver's metadata. The orchestrator supplies `expectedSignerId` independently of the solver; a valid signature from another key is insufficient. Exactly one token-diff operation is allowed, with the complete permitted asset set, exact quoted spend and minimum receipts, no extra operations, and a finite deadline within 30 minutes. Malformed intent messages are rejected.
+
+A missing or malformed live slice/reference quote is labelled as a fallback with `validForAuthorization: false`; the guard requires an explicit true validity marker before preparing an MPC request. Offline-model quotes are usable only for the explicit offline simulation. Live quote responses validate amounts and provider timestamps when present (60-second maximum age, five seconds future tolerance). Without a provider timestamp, freshness means the response was fetched in this run; it is not independently attested. These are off-chain checks, not new guarantees in the immutable contracts.
+
+The contract still trusts reported holdings, collateral, slippage and reference price. Window caps limit signed order flow, not outstanding positions after the window expires. The read-only judge preview deliberately exposes a half-price proposal that can pass the cap. Independent oracle and holdings verification require a separately designed deployment.

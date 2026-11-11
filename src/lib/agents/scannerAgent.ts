@@ -142,7 +142,7 @@ export async function probeEntryCosts(live: boolean, recipient: string): Promise
   const results = await Promise.all(
     PAIR_IDS.map(async (asset): Promise<CostProbe> => {
       const [ref, probe] = await Promise.all([quote(asset, SCANNER_ASSUMPTIONS.referenceQuoteUsd), quote(asset, SCANNER_ASSUMPTIONS.probeQuoteUsd)]);
-      if (!ref.quote) return local(asset, ref.error);
+      if (!ref.quote || !probe.quote) return local(asset, ref.error ?? probe.error);
       const inUsd = Number(ref.quote.amountInUsd);
       const outUsd = Number(ref.quote.amountOutUsd);
       const refRate = Number(ref.quote.amountOut) / SCANNER_ASSUMPTIONS.referenceQuoteUsd;
