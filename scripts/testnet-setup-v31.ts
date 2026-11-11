@@ -211,8 +211,8 @@ async function main() {
         symbol,
         asset,
         sz_decimals: live.szDecimals,
-        max_order_size_e8: coinsToE8(V31_SIZE_CAPS[symbol].maxOrderCoins).toString(),
-        window_size_cap_e8: coinsToE8(V31_SIZE_CAPS[symbol].windowCoins).toString(),
+        max_order_size_e8: Number(coinsToE8(V31_SIZE_CAPS[symbol].maxOrderCoins)),
+        window_size_cap_e8: Number(coinsToE8(V31_SIZE_CAPS[symbol].windowCoins)),
       };
     });
     state.markets = { fetchedAt, table };
