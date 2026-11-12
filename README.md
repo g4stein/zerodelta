@@ -4,6 +4,49 @@
 
 ▶ **Live demo:** [zerodelta.vercel.app](https://zerodelta.vercel.app/) (no wallet needed) · **Judge guide:** [docs/JUDGE_GUIDE.md](docs/JUDGE_GUIDE.md) · **Primary track:** 06 / SEC AI Security & Defense
 
+![Read-only v3.1 size-attack check rejected by the deployed contract](docs/images/contract-checker.png)
+
+*Captured from the read-only checker on November 12; the live demo fetches a fresh verdict. No signature or transaction is created.*
+
+## What it does
+
+| Question | Answer |
+|---|---|
+| What is it? | Three cooperating, deterministic agents (scanner, order solver with encrypted slices, risk guard) that find, size and check delta-neutral funding-carry trades across NEAR, Solana, Arbitrum, Bitcoin and Hyperliquid, plus a locked NEAR contract that is the only path to the treasury's signing key. |
+| What problem? | An AI agent with a treasury key can lose everything on one hallucinated or hijacked trade. Spending limits in the agent's own code don't help if the agent is the thing that's compromised. |
+| Why NEAR? | Chain Signatures derives a key per *calling account*, and a NEAR contract can be that caller and can delete all its access keys. So a smart contract, not a person or agent, holds signing authority, and its rules can't be changed. |
+| What is implemented? | Three locked contracts on testnet; v2 (33 Rust tests) drives the dashboard swarm, and v3.1 (55 Rust tests incl. the official Hyperliquid SDK vectors and parity with the TypeScript signer, plus 27/27 mutations caught) is the executable-signing path. v3 is superseded, real NEP-413 intents checked by `intents.near`, live 1Click and Hyperliquid data, the agent pipeline, and a harness that re-verifies everything (95 checks). |
+| What does the demo prove? | v3.1: a locked contract built a size-capped Hyperliquid testnet order from risk-checked legs and got NEAR's MPC network to sign it, Hyperliquid recovered the contract's hedge address from that signature (signer recovery), and a price-inflation attack was rejected on-chain. v2: a lying solver, a rogue 10x trade and a replay all failed as real testnet transactions without producing an MPC signature. |
+| What is not implemented? | No funds move, no order fills, no mainnet. The TEE is simulated. The reference price is a trusted solver input, so a halved price still fits under the coin caps. See [Limitations](#limitations). |
+| How do I reproduce it? | `npm ci && npm test && npm run verify && npm run build`, plus `cargo test` in `contracts/risk-guard`, `contracts/risk-guard-v3` and `contracts/risk-guard-v31`. See [Quick start](#quick-start). |
+
+## Try the current contract (read-only)
+
+At the top of the demo, select a proposal and click **Check proposal**:
+
+- **Within policy** → a fresh v3.1 view-call result, with the constructed order and digest.
+- **Attack: inflate size** → `ORDER_SIZE_CAP`.
+- **Attack: long expiry** → `EXPIRY_TOO_FAR`.
+- **Inspect remaining price risk** → a larger sell can still be accepted under the coin cap. This is an exposed limitation, not a safety claim.
+
+Results depend on current contract state. An RPC failure shows unavailable, never a fabricated verdict. Nothing signs or broadcasts. The v2 swarm remains a separate simulation below the current proof. Historical contracts, transaction records and signatures are preserved.
+
+## Quick start
+
+```bash
+git clone https://github.com/g4stein/zerodelta.git && cd zerodelta
+npm ci                 # Node.js >= 20.9, npm; no API keys
+npm run dev            # http://localhost:3000
+```
+
+The web demo needs Node.js and npm only. For contract tests and WASM reproduction, also install Rust 1.81.0 and its `wasm32-unknown-unknown` target (see [Rebuild the deployed binaries](#rebuild-the-deployed-binaries)). Public API/RPC access is needed for live checks; offline verification does not require it.
+
+On the page: **do** start with **Try the current contract** **→ see** the contract's fresh verdict, constructed order and digest. Nothing signs or broadcasts. **Do** read the v3.1 historical proof panel below it **→ see** the five-step signing chain, with the recorded digest and signature recovery recomputed in your browser and the contract's lock state read live. **Do** click the green swarm button **→ see** market ranking, Agent 1/2 negotiation, the guard checks and the v2 contract's verdict. **Do** click the amber button **→ see** the claim-vs-payload panel and `PAYLOAD_COMMITMENT_MISMATCH`. The swarm is a separate v2 dry-run demonstration, not a new v3.1 signature.
+
+Re-check the recorded exchange evidence offline (no network requests or writes): `npm run hl:acceptance` **→ see** `PASS` for the real signature and different addresses for the two corrupted copies.
+
+Repository requirements and evidence: [Judging evidence](docs/JUDGING_EVIDENCE.md). Deployment safeguards and limits: [Demo operations](docs/DEMO_OPERATIONS.md).
+
 ## v3.1 proof: a locked contract signed a size-capped Hyperliquid testnet order, and Hyperliquid recovered the contract's hedge address from the signature
 
 Contract [`zerodelta-guard-v31-c6e71c.testnet`](https://testnet.nearblocks.io/address/zerodelta-guard-v31-c6e71c.testnet), 0 access keys, hedge address `0xa74e082a55e862845d510f8d609d315afd859f5e`.
@@ -32,7 +75,7 @@ The first executable-signing deployment, [`zerodelta-guard-v3-a9c75f.testnet`](h
 
 The v3 proof's earlier "price 3% off the reference is rejected" transaction was an arithmetic check of the price band, not an attack proof. The real attack proof is the size-inflation rejection above. The audit also corrected wording: the proof shows signer recovery, not that the exchange would accept a funded order.
 
-**Residual risk in v3.1, stated plainly.** The caps bound the position, they do not remove the risk. A solver that halves the price still gets an order about twice the approved size (for example 720 SOL against a cap of 800) approved, because it fits under the cap. The reference price is still a trusted solver input. An on-chain oracle would close this; it was left out on purpose.
+**Residual risk in v3.1, stated plainly.** The caps bound individual order size and rolling signing volume; they do not verify outstanding portfolio exposure. A solver that halves the price still gets an order about twice the approved size (for example 720 SOL against a cap of 800) approved, because it fits under the cap. The reference price is still a trusted solver input. An on-chain oracle would close this; it was left out on purpose.
 
 **v2 proof on NEAR testnet**, kept as history (contract [`zerodelta-guard-fb604f.testnet`](https://testnet.nearblocks.io/address/zerodelta-guard-fb604f.testnet), 0 access keys; it signs a ZeroDelta order commitment, not an exchange order):
 [contract calls the MPC signer after its checks](https://testnet.nearblocks.io/txns/DZaDDUGQQLBkdZHiZxn95NtrmeUiGrd3a7af4hn37JfV) ·
@@ -41,15 +84,6 @@ The v3 proof's earlier "price 3% off the reference is rejected" transaction was 
 [replay rejected](https://testnet.nearblocks.io/txns/3rQrPFjByJmK676YJyX7v785unoSr6FanWTdrKfXqSff) ·
 [deploy + lock](https://testnet.nearblocks.io/txns/12skMoFQC6sNfB6YNqmpEiK8DCQUWYFPcDLNoAvXM5Lx)
 
-| Question | Answer |
-|---|---|
-| What is it? | Three cooperating, deterministic agents (scanner, confidential solver, risk guard) that find, size and check delta-neutral funding-carry trades across NEAR, Solana, Arbitrum, Bitcoin and Hyperliquid, plus a locked NEAR contract that is the only path to the treasury's signing key. |
-| What problem? | An AI agent with a treasury key can lose everything on one hallucinated or hijacked trade. Spending limits in the agent's own code don't help if the agent is the thing that's compromised. |
-| Why NEAR? | Chain Signatures derives a key per *calling account*, and a NEAR contract can be that caller and can delete all its access keys. So a smart contract, not a person or agent, holds signing authority, and its rules can't be changed. |
-| What is implemented? | Three locked contracts on testnet; v2 (33 Rust tests) drives the dashboard swarm, and v3.1 (55 Rust tests incl. the official Hyperliquid SDK vectors and parity with the TypeScript signer, plus 27/27 mutations caught) is the executable-signing path. v3 is superseded, real NEP-413 intents checked by `intents.near`, live 1Click and Hyperliquid data, the agent pipeline, and a harness that re-verifies everything (95 checks). |
-| What does the demo prove? | v3.1: a locked contract built a size-capped Hyperliquid testnet order from risk-checked legs and got NEAR's MPC network to sign it, Hyperliquid recovered the contract's hedge address from that signature (signer recovery), and a price-inflation attack was rejected on-chain. v2: a lying solver, a rogue 10x trade and a replay all failed as real testnet transactions without producing an MPC signature. |
-| What is not implemented? | No funds move, no order fills, no mainnet. The TEE is simulated. The reference price is a trusted solver input, so a halved price still fits under the coin caps. See [Limitations](#limitations). |
-| How do I reproduce it? | `npm ci && npm test && npm run verify && npm run build`, plus `cargo test` in `contracts/risk-guard`, `contracts/risk-guard-v3` and `contracts/risk-guard-v31`. See [Quick start](#quick-start). |
 
 ---
 
@@ -69,6 +103,8 @@ Most agent "guardrails" are checks in the same process that holds the key. Here 
 ---
 
 ## NEAR-specific architecture
+
+This diagram shows the dashboard’s v2 simulation path. The current v3.1 executable-signing path is described immediately below it.
 
 ```mermaid
 flowchart LR
@@ -95,7 +131,7 @@ flowchart LR
 
 ---
 
-## Real deployed proof (NEAR testnet)
+## Historical v2 deployed proof (NEAR testnet)
 
 All values are in [`testnet-proof.json`](testnet-proof.json) and re-checked by `npm run verify` §9 against an archival RPC.
 
@@ -119,29 +155,6 @@ Rogue figures in fresh dry runs differ slightly from tx 3 (e.g. 99,996 vs 99,970
 
 ---
 
-## Try the current contract (read-only)
-
-At the top of the demo, select a proposal and click **Check proposal**:
-
-- **Within policy** → a fresh v3.1 view-call result, with the constructed order and digest.
-- **Attack: inflate size** → `ORDER_SIZE_CAP`.
-- **Attack: long expiry** → `EXPIRY_TOO_FAR`.
-- **Inspect remaining price risk** → a larger sell can still be accepted under the coin cap. This is an exposed limitation, not a safety claim.
-
-Results depend on current contract state. An RPC failure shows unavailable, never a fabricated verdict. Nothing signs or broadcasts. The v2 swarm remains a separate simulation below the current proof. Historical contracts, transaction records and signatures are preserved.
-
-## Quick start
-
-```bash
-git clone https://github.com/g4stein/zerodelta.git && cd zerodelta
-npm ci                 # Node.js >= 20.9, no API keys
-npm run dev            # http://localhost:3000
-```
-
-On the page: **do** start with **Try the current contract** **→ see** the contract's fresh verdict, constructed order and digest. Nothing signs or broadcasts. **Do** read the v3.1 historical proof panel below it **→ see** the five-step signing chain, with the recorded digest and signature recovery recomputed in your browser and the contract's lock state read live. **Do** click the green swarm button **→ see** market ranking, Agent 1/2 negotiation, the guard checks and the v2 contract's verdict. **Do** click the amber button **→ see** the claim-vs-payload panel and `PAYLOAD_COMMITMENT_MISMATCH`. The swarm is a separate v2 dry-run demonstration, not a new v3.1 signature.
-
-Re-check the recorded exchange evidence offline (no network requests or writes): `npm run hl:acceptance` **→ see** `PASS` for the real signature and different addresses for the two corrupted copies.
-
 ## Reproducible tests
 
 [`verify-report.json`](verify-report.json) is a read-only verification snapshot. Its `source.commit` identifies the source checked, and `source.dirty` says whether tracked files differed at the start of that run. The report cannot name the commit that subsequently saves it. For a report tied to the exact reviewed head, use the CI artifact `verify-report-offline-<sha>`.
@@ -149,7 +162,7 @@ Re-check the recorded exchange evidence offline (no network requests or writes):
 | Command | Result | Network |
 |---|---|---|
 | `npm run typecheck` | clean | none |
-| `npm test` | **184 tests**, 8 files, including intent-boundary regressions and preview scenarios: [`swarm.test.ts`](tests/swarm.test.ts), [`adversarial.test.ts`](tests/adversarial.test.ts), [`hyperliquid.test.ts`](tests/hyperliquid.test.ts), [`hlParity.test.ts`](tests/hlParity.test.ts), [`proofFile.test.ts`](tests/proofFile.test.ts) | none (fetch mocked where used) |
+| `npm test` | **206 tests**, 10 files, including intent-boundary regressions and preview scenarios: [`swarm.test.ts`](tests/swarm.test.ts), [`adversarial.test.ts`](tests/adversarial.test.ts), [`hyperliquid.test.ts`](tests/hyperliquid.test.ts), [`hlParity.test.ts`](tests/hlParity.test.ts), [`proofFile.test.ts`](tests/proofFile.test.ts), [`intentBoundary.test.ts`](tests/intentBoundary.test.ts), [`preview.test.ts`](tests/preview.test.ts), [`reviewRegressions.test.ts`](tests/reviewRegressions.test.ts), [`requestPolicy.test.ts`](tests/requestPolicy.test.ts), [`apiRoutes.test.ts`](tests/apiRoutes.test.ts) | none (fetch mocked where used) |
 | `cd contracts/risk-guard && cargo test` | **33 tests** (v2): 18 unit tests in `src/lib.rs` + 15 in [`tests/adversarial.rs`](contracts/risk-guard/tests/adversarial.rs) | none (Rust 1.81) |
 | `cd contracts/risk-guard-v3 && cargo test` | **44 tests** (v3): 6 unit, 5 official Hyperliquid SDK vectors, 5 TS parity (incl. 110 contract-level cases), 28 [adversarial](contracts/risk-guard-v3/tests/adversarial.rs) | none (Rust 1.81) |
 | `cd contracts/risk-guard-v31 && cargo test` | **55 tests** (v3.1): 6 unit, 6 official Hyperliquid SDK vectors, 5 TS parity (134 contract-level cases), 38 [adversarial](contracts/risk-guard-v31/tests/adversarial.rs) (size caps, window, expiry, minimum value, malformed MPC response). [`MUTATION_RESULTS.md`](contracts/risk-guard-v31/MUTATION_RESULTS.md): **27/27** deliberate bugs caught (v3: [15/15](contracts/risk-guard-v3/MUTATION_RESULTS.md)); re-run with `npm run mutation:v31` | none (Rust 1.81) |
@@ -221,7 +234,7 @@ Full threat model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). v2 and the 
 - The **reference price is a trusted solver input**: a compromised solver can move the limit and the reference together, which changes the size (notional ÷ limit). v3.1 bounds that with per-market caps in coins (per order and per 24 h) and an order-count cap, but a cheaper price that still fits under the cap is approved (about 2× the intended size at half price). An on-chain oracle would remove this trust.
 - Other trusted inputs (treasury, collateral, slippage), and v2's open findings F-1, F-2 (fixed in v3) and F-3, are in [SECURITY_MODEL.md](docs/SECURITY_MODEL.md).
 - The TEE enclave and attestation are software-simulated.
-- The v3 market table is the Hyperliquid testnet table, fetched and pinned at deploy (2026-11-11). The v2 dashboard's offline Hyperliquid module still uses mainnet indices from 2026-11-09; one live quote is scaled to all slices.
+- The v3.1 market table is the Hyperliquid testnet table, fetched and pinned at deploy (2026-11-11). The v2 dashboard's offline Hyperliquid module still uses mainnet indices from 2026-11-09; one live quote is scaled to all slices.
 - Dashboard clicks never create transactions. **The dashboard swarm demo runs against the v2 contract; v3.1 is the executable-signing path** and its transactions were sent once by `scripts/testnet-setup-v31.ts`. The v3.1 panel only reads.
 - Off-chain approved-nonce memory is per server instance; each contract's `last_nonce` is the real replay barrier.
 
@@ -235,7 +248,7 @@ Full threat model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). v2 and the 
 
 ## v2 → v3 → v3.1 (what changed during the hackathon)
 
-All ZeroDelta code was written inside the hackathon window (first commit 2026-11-08; the window opened 2026-10-19), so there is no pre-hackathon baseline. v3 was built on the dedicated branch [`v3-executable-signing`](https://github.com/g4stein/zerodelta/tree/v3-executable-signing) from the safety tag `v2-before-v3`.
+All ZeroDelta code was written inside the hackathon window (first commit 2026-11-08; the eligible code window opened 2026-10-19 under [official rule Q-001](https://nearhackathon.com/HACKATHON.md#rules), distinct from the November 1 event start), so there is no pre-hackathon baseline. v3 was built on the dedicated branch [`v3-executable-signing`](https://github.com/g4stein/zerodelta/tree/v3-executable-signing) from the safety tag `v2-before-v3`.
 
 - Full diff: [`v2-before-v3...hackathon-submission`](https://github.com/g4stein/zerodelta/compare/v2-before-v3...hackathon-submission) (historical v3.1 submission snapshot; subsequent hardening is on the current branch).
 - Post-snapshot hardening: [`hackathon-submission...main`](https://github.com/g4stein/zerodelta/compare/hackathon-submission...main). The historical submission tag is preserved.
@@ -245,14 +258,14 @@ All ZeroDelta code was written inside the hackathon window (first commit 2026-11
 
 ## Hackathon track relevance
 
+Lead with Security; DeFi and Swarms are supporting demonstrations. Business describes the treasury use case. The modules are deterministic and the TEE is simulated; no LLM inference or hardware privacy is claimed. This table does not change the saved submission.
+
 | Track | Fit |
 |---|---|
 | **06 / SEC AI Security & Defense** (primary) | Policy engine enforced by a keyless contract that builds and signs the executable order itself, replay protection, guard-gated Chain Signatures, public attack transactions, signer-recovery-proven signature. |
 | 01 / DFI Unstoppable DeFi | Funding-carry strategy over NEAR Intents and Chain Signatures; the perp hedge is a Hyperliquid order signed via Chain Signatures (testnet, not filled). |
 | 05 / SWM AI Swarms | Three specialised agents; scanner and solver negotiate slice size from live feedback; the guard checks both. |
 | 04 / BUS Autonomous Business | Treasury that ranks markets, sizes itself, says NO_TRADE when nothing pays, and leaves an audit trail. |
-| 07 / AGT Agent Economy | Agents act on treasury value only within contract-enforced limits. |
-| 03 / PRV Privacy & Private AI | Encrypted order slices; the TEE is a simulated prototype boundary, so this fit is partial. |
 
 ## Built with, and disclosure
 
@@ -268,7 +281,7 @@ Next.js 16, React 19, Tailwind 4, near-api-js 7, near-sdk 5.5 (Rust), secp256k1 
 curl -fsS 'https://zerodelta.vercel.app/api/hedge-preview?scenario=size-attack' | jq '.evaluation.violations'
 ```
 
-`GET /api/swarm` returns live telemetry plus the v2 contract's state, the re-verified v2 proof transactions, and `onchainV3` (the current v3.1 contract's lock state and attestation #0 compared with the proof). `POST /api/swarm` with `{ "mode": "rebalance" | "rogue" | "spoofed_metrics", "treasuryUsd": 10000–1000000, "pair": "AUTO" | "NEAR" | "SOL" | "ETH" | "BTC", "sliceCount": "auto" | 1–24, "simulateUnprofitable": true }` runs the swarm (input is clamped; only boolean `true` enables the override).
+`GET /api/swarm` returns live telemetry (successful snapshots shared for up to 10 seconds per instance; the v3.1 status reader also has its existing 60-second cache) plus the v2 contract's state, the re-verified v2 proof transactions, and `onchainV3` (the current v3.1 contract's lock state and attestation #0 compared with the proof). `POST /api/swarm` with `{ "mode": "rebalance" | "rogue" | "spoofed_metrics", "treasuryUsd": 10000–1000000, "pair": "AUTO" | "NEAR" | "SOL" | "ETH" | "BTC", "sliceCount": "auto" | 1–24, "simulateUnprofitable": true }` runs the swarm (input is clamped; only boolean `true` enables the override).
 
 ```bash
 curl -s https://zerodelta.vercel.app/api/swarm | jq '{contract: .onchain.contractId, locked: .onchain.guard.locked, allVerified: .onchain.allVerified}'
@@ -277,6 +290,8 @@ curl -s -X POST https://zerodelta.vercel.app/api/swarm -H 'content-type: applica
 curl -s -X POST https://zerodelta.vercel.app/api/swarm -H 'content-type: application/json' -d '{"mode":"rebalance","pair":"AUTO"}' \
   | jq '{economics, decision: .guardian.decision, pair: .resolved.pair, negotiation: [.negotiation[] | {sliceCount, observedSlippageBps, action}]}'
 ```
+
+POST requires a JSON object with `Content-Type: application/json`, at most 4 KiB, received within 5 seconds. Invalid JSON/objects return 400, unsupported media types 415, oversized bodies 413, and a stalled body 408. Instance-level budgets return 429 with `Retry-After` (swarm: 12 starts/minute, 2 concurrent; preview: 60/minute, 6 concurrent). Limits are aggregate per instance, not per visitor and not deployment-wide. Upstream failures return 503. See [Demo operations](docs/DEMO_OPERATIONS.md) for the distributed protection gap.
 
 ### Rebuild the deployed binaries
 

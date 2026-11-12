@@ -2,7 +2,7 @@
   "name": "zerodelta",
   "version": "1.0.0",
   "private": true,
-  "description": "ZeroDelta: a 3-agent swarm that plans, confidentially solves, and risk-guards delta-neutral cross-chain rebalances using NEAR Intents (NEP-413) and NEAR Chain Signatures.",
+  "description": "ZeroDelta: a 3-agent swarm that plans, encrypts order slices, and risk-guards delta-neutral cross-chain rebalances using NEAR Intents (NEP-413) and NEAR Chain Signatures.",
   "license": "MIT",
   "type": "module",
   "engines": {

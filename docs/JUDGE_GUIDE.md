@@ -2,6 +2,8 @@
 
 **Live demo:** [zerodelta.vercel.app](https://zerodelta.vercel.app/) · **Repo:** [github.com/g4stein/zerodelta](https://github.com/g4stein/zerodelta) · **Primary track:** 06 / SEC AI Security & Defense
 
+Repository requirements: [Judging evidence](JUDGING_EVIDENCE.md). API limits and hosting boundaries: [Demo operations](DEMO_OPERATIONS.md). Web checks need Node.js >=20.9 and npm; contract tests/rebuilds additionally need Rust 1.81.0 and its WASM target.
+
 ## 30-second version
 
 AI agents run a delta-neutral carry strategy (spot long + equal perp short) for a treasury. The agents never hold the signing key. The key is derived by NEAR Chain Signatures for a NEAR contract with **zero access keys**, and that contract only requests a signature after it recomputes the risk from the raw order legs.
@@ -14,7 +16,7 @@ In **v3.1** the contract also builds the executable Hyperliquid order itself, ca
 
 **2. The exchange's signer recovery confirms the binding.** [`hl-acceptance.json`](../hl-acceptance.json): Hyperliquid testnet `/exchange` recovered `0xa74e082a55e862845d510f8d609d315afd859f5e` from the real signature, `0x1989…c074` with `v` flipped and `0x54a3…c264` with one bit of `s` flipped. The link from the risk-checked legs to that digest is verify §11's *recorded digest == fresh TS rebuild* plus the live *contract view rebuilds the same digest today*. Hyperliquid remembers each (signer, nonce), so this exact post cannot be repeated: `npm run hl:acceptance` re-checks the recorded evidence offline, and `-- --live` reports a repeat as SPENT.
 
-**3. Reproducible adversarial proof.** v3.1: 55 Rust tests (official Hyperliquid SDK vectors, 134 contract-level cases byte-identical to the TypeScript mirror, an adversarial test for every rejection) and a mutation run in which 27/27 deliberate contract bugs were caught ([`MUTATION_RESULTS.md`](../contracts/risk-guard-v31/MUTATION_RESULTS.md); v3: 15/15). v2: 33 Rust tests. 184 TypeScript tests. `npm run verify` (95 checks) re-fetches every historical transaction of both contracts from an archival RPC and checks that no rejected transaction produced an MPC receipt.
+**3. Reproducible adversarial proof.** v3.1: 55 Rust tests (official Hyperliquid SDK vectors, 134 contract-level cases byte-identical to the TypeScript mirror, an adversarial test for every rejection) and a mutation run in which 27/27 deliberate contract bugs were caught ([`MUTATION_RESULTS.md`](../contracts/risk-guard-v31/MUTATION_RESULTS.md); v3: 15/15). v2: 33 Rust tests. 206 TypeScript tests. `npm run verify` (95 checks) re-fetches every historical transaction of both contracts from an archival RPC and checks that no rejected transaction produced an MPC receipt.
 
 ## Where to click (about 3 minutes)
 
@@ -31,8 +33,9 @@ npm ci && npm run typecheck && npm test && npm run build
 npm run verify              # live, read-only; §10 is v3 (superseded history), §11 is v3.1
 npm run verify:offline      # no network
 npm run hl:acceptance       # offline: checks recorded signer-recovery evidence; expect PASS
-cd contracts/risk-guard && cargo test      # v2, Rust 1.81
-cd contracts/risk-guard-v31 && cargo test  # v3.1, Rust 1.81
+(cd contracts/risk-guard && cargo +1.81.0 test --locked)      # v2
+(cd contracts/risk-guard-v3 && cargo +1.81.0 test --locked)   # superseded v3
+(cd contracts/risk-guard-v31 && cargo +1.81.0 test --locked)  # current v3.1
 ```
 
 `npm run hl:acceptance` makes no network requests and writes nothing. It checks the recorded exchange responses against the proof: the real signature must recover the pinned hedge address, and both corrupted signatures must recover different addresses. `npm run hl:acceptance -- --live` posts the recorded order and the two controls to Hyperliquid testnet; a repeated nonce is reported as `SPENT`, not a fresh pass. It writes only the git-ignored local report and sends no NEAR transaction. Details: [VERIFICATION.md](VERIFICATION.md).

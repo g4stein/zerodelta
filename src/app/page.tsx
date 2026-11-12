@@ -56,7 +56,7 @@ const PAIR_OPTIONS: { id: PairSelection; label: string }[] = [
   { id: "BTC", label: "BTC-PERP / nBTC" },
 ];
 
-const TRACKS = ["06 / SEC", "01 / DFI", "05 / SWM", "04 / BUS", "07 / AGT", "03 / PRV"];
+const TRACKS = ["06 / SEC", "01 / DFI", "05 / SWM"];
 
 type ProofTab = "intent" | "mpc" | "attestation" | "onchain" | "audit";
 type LiveTelemetry = BaseTelemetry & { onchain?: OnchainProofStatus; onchainV3?: V3OnchainStatus | null };
@@ -183,7 +183,7 @@ function Header() {
             <h1 className="text-2xl font-semibold tracking-tight text-white">
               Zero<span className="text-emerald-400">Delta</span>
             </h1>
-            <p className="text-xs text-slate-400">Cross-chain delta-neutral carry, confidentially solved, contract-guarded on NEAR</p>
+            <p className="text-xs text-slate-400">Cross-chain delta-neutral carry, encrypted order slices, contract-guarded on NEAR</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2" aria-label="Hackathon tracks">
@@ -606,7 +606,7 @@ function ControlPanel(props: {
         <div>
           <div className="flex items-center justify-between text-xs">
             <label htmlFor="slices" className="text-slate-400">
-              Confidential order slices
+              Encrypted order slices
             </label>
             <span className="font-mono text-cyan-300">{autoSlices ? "auto" : slices}</span>
           </div>
@@ -984,7 +984,7 @@ function Pipeline({ run, phase, running }: { run: SwarmRun | null; phase: number
     return (
       <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-3">
         <StepShell index={1} title="Autonomous Opportunity Scanner" icon={<Radar className="h-4 w-4" />} state={stateFor(1)} />
-        <StepShell index={2} title="Confidential TEE Solver" icon={<Cpu className="h-4 w-4" />} state={stateFor(2)} />
+        <StepShell index={2} title="Order Solver (simulated TEE)" icon={<Cpu className="h-4 w-4" />} state={stateFor(2)} />
         <StepShell index={3} title="Delta Risk Guard" icon={<ShieldCheck className="h-4 w-4" />} state={stateFor(3)} />
       </div>
     );
@@ -997,7 +997,7 @@ function Pipeline({ run, phase, running }: { run: SwarmRun | null; phase: number
         <ScannerView run={run} />
       </StepShell>
       <div className="grid grid-cols-[minmax(0,1fr)] gap-6 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <StepShell index={2} title="Confidential TEE Solver" icon={<Cpu className="h-4 w-4" />} state="done" durationMs={step("solver")?.durationMs}>
+        <StepShell index={2} title="Order Solver (simulated TEE)" icon={<Cpu className="h-4 w-4" />} state="done" durationMs={step("solver")?.durationMs}>
           <SolverView run={run} />
         </StepShell>
         <StepShell

@@ -1,5 +1,5 @@
 /**
- * Agent 2 — Confidential TEE Solver & NEP-413 Intent Crafter.
+ * Agent 2 — Order Solver (simulated TEE) & NEP-413 Intent Crafter.
  *
  * 1. Prices every on-chain leg with a live NEAR Intents 1Click dry quote
  *    (falls back to a deterministic local quote if the API is unreachable).

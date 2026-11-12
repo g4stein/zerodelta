@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ZeroDelta — Confidential Delta-Neutral Intent Swarm on NEAR",
+  title: "ZeroDelta — Contract-Guarded Carry Strategy on NEAR",
   description:
-    "Three cooperating agents scan funding, confidentially solve NEP-413 intents, and enforce delta-neutral risk invariants before any NEAR Chain Signature is authorized.",
+    "Three cooperating agents scan funding, construct NEP-413 intents with encrypted slices, and enforce delta-neutral risk invariants before any NEAR Chain Signature is authorized.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

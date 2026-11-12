@@ -383,7 +383,7 @@ export async function runSwarm(request: SwarmRequest, options: RunOptions = {}):
   const rounds = negotiation.length;
   steps.push({
     agent: "solver",
-    title: "Confidential TEE Solver",
+    title: "Order Solver (simulated TEE)",
     status: "completed",
     startedAt: solve.startedAt,
     durationMs: solve.durationMs,
