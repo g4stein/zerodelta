@@ -1,6 +1,6 @@
 import { V31_PROOF_JSON } from "../near/proofFile";
 
-export const PREVIEW_SCENARIOS = ["approved", "size-attack", "expiry-attack", "price-risk"] as const;
+export const PREVIEW_SCENARIOS = ["approved", "size-attack", "expiry-attack", "price-risk", "naked-short"] as const;
 export type PreviewScenario = typeof PREVIEW_SCENARIOS[number];
 
 /** Fresh read-only requests built from the pinned proof; no signatures or transaction keys. */
@@ -15,5 +15,13 @@ export function previewRequest(scenario: PreviewScenario, nowMs: number) {
     request.reference_px_e8 = request.limit_px_e8;
   }
   if (scenario === "expiry-attack") request.expires_after_ms = nowMs + 7200000;
+  if (scenario === "naked-short") {
+    // Deliberately unhedged: the immutable contract does not authenticate these inputs.
+    request.order.spot_long_usd_cents = 0;
+    request.order.perp_long_usd_cents = 0;
+    request.order.perp_short_usd_cents = 8_000_000; // $80,000
+    request.order.treasury_usd_cents = 80_000_000_000; // $800 million, reported only
+    request.order.collateral_usd_cents = 80_000_000_000;
+  }
   return request;
 }

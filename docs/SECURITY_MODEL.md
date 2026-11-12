@@ -164,6 +164,18 @@ Fifteen deliberate contract bugs (signing the solver's digest, a buy instead of 
 
 ## 8. Risk Guard v3.1 (current)
 
+### Reported-input bypass and lifecycle boundary
+
+A compromised authorized solver can set spot to zero, the short to $80,000 and reported treasury/collateral to $800 million. A read-only call at block **277325226** returned `approved: true`, `net_delta_bps: 1`, `leverage_x100: 1` (**0.01×**, not 1×), a **38.5672 ETH** sell and no violations. Changing only treasury/collateral to $50,000 produced `DELTA_NEUTRALITY: 16000 bps > 200 bps`. This is a trust-assumption bypass, not integer overflow. The executable sell stays the same; the reported denominator changes the math. The `naked-short` preview demonstrates it using fresh nonces and current window state, never a preset verdict.
+
+**Independently enforced restrictions:** listed market, IOC sell/non-reduce-only shape, coin caps, expiry, replay checks and contract-built digest. These do not authenticate actual holdings or guarantee delta neutrality. The MPC network and exchange behavior remain external trust assumptions.
+
+**No lifecycle exit:** `hedge_order` always constructs `is_buy: false, reduce_only: false`; no exposed method signs a closing buy or withdrawal. Repeated windows admit additional signed volume without verifying accumulated positions. This unfunded deployment must not be treated as a complete funded carry account. A future separately deployed design needs authenticated position reconciliation, exposure limits, close-only actions and recovery. A separately controlled master account with an API wallet is a candidate architecture, not an implemented remedy.
+
+**Quota consumption:** the contract appends the attestation before yielding to MPC, and window accounting includes records regardless of MPC status or exchange fill. Failed, withheld or unfilled attempts can consume capacity. This is an availability limitation under a compromised authorized solver; the caps deliberately measure attempted signing flow, not fills. Do not automatically release capacity on callback failure without proving no usable signature can exist.
+
+### Existing v3.1 checks and evidence
+
 Contract [`zerodelta-guard-v31-c6e71c.testnet`](https://testnet.nearblocks.io/address/zerodelta-guard-v31-c6e71c.testnet), source [`contracts/risk-guard-v31/src/lib.rs`](../contracts/risk-guard-v31/src/lib.rs), 0 access keys, hedge address `0xa74e082a55e862845d510f8d609d315afd859f5e`. Everything in §7.1–§7.4 applies, plus:
 
 | Added check | Rejection |
@@ -177,7 +189,7 @@ Contract [`zerodelta-guard-v31-c6e71c.testnet`](https://testnet.nearblocks.io/ad
 
 On-chain proof of the audit attack: limit = reference = 1/10 of the market price gives 159.2 ETH, rejected with `ORDER_SIZE_CAP` and `WINDOW_SIZE_CAP`, no MPC receipt ([tx](https://testnet.nearblocks.io/txns/ibykqDGu99Y2kqW2xRW9kA3ot33r7usfDZTGzJ8GXHz)).
 
-**What the guarantee is, and is not.** The position a single signed order can take is bounded in coins, and total signed size per day is bounded. The caps are fixed at deploy for the demo's $50k treasury, so they are loose for other treasuries. They do not remove the risk: a solver that halves the price gets about 2× the intended size approved if that still fits under the cap (for example 720 SOL against a cap of 800). The reference price is still a trusted solver input. An on-chain oracle would close this and was left out on purpose.
+**What the guarantee is, and is not.** Individual order size and rolling signing volume are bounded in coins; outstanding positions are not tracked. The caps are fixed at deploy for the demo's $50k treasury, so they are loose for other treasuries. They do not remove the risk: a solver that halves the price gets about 2× the intended size approved if that still fits under the cap (for example 720 SOL against a cap of 800). The reference price is still a trusted solver input. An on-chain oracle would close this and was left out on purpose.
 
 **`expiresAfter` bound.** The contract limits expiry to one hour. Hyperliquid also accepts nonces several days old, so `expiresAfter` is the only time bound the signature carries; after it passes, Hyperliquid rejects the order. An hour is a judgment call, not a derived number.
 

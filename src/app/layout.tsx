@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "ZeroDelta — Contract-Guarded Carry Strategy on NEAR",
   description:
-    "Three cooperating agents scan funding, construct NEP-413 intents with encrypted slices, and enforce delta-neutral risk invariants before any NEAR Chain Signature is authorized.",
+    "Keyless NEAR contract controls MPC signing of contract-built Hyperliquid testnet orders with coin caps, expiry and replay protection. Portfolio inputs are solver-reported; no funds move.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
