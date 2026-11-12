@@ -201,8 +201,8 @@ function Header() {
               Agents propose. <span className="text-emerald-300">The contract controls signing.</span>
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-400">
-              Agents discover and construct opportunities. A deterministic guard checks the proposal. The locked NEAR contract independently verifies raw order
-              parameters before it can authorize an MPC signing request.
+              The keyless NEAR contract builds the executable order and controls MPC requests. It enforces order shape, coin caps, expiry and nonce rules.
+              Delta and leverage are consistency checks on solver-reported inputs, not verified portfolio exposure.
             </p>
           </div>
           <EvidenceLegend />
@@ -254,11 +254,10 @@ function WhyItMatters() {
         </p>
         <p>
           In ZeroDelta the key is not held by any agent. It is derived by NEAR Chain Signatures for a smart contract that has no access keys of its own. That
-          contract recomputes the risk from the raw order and checks the order&apos;s fingerprint before it will ask for a signature, so a lying agent gets a
-          failed transaction instead of a signature.
+          contract checks reported order parameters before requesting a signature. The current v3.1 path also constructs the executable sell itself, with fixed coin caps, expiry and replay protection. A solver can still fabricate holdings and treasury inputs; passing the math does not prove a hedge.
         </p>
         <p className="text-slate-500">
-          Limits: the contract trusts the solver&apos;s treasury size and slippage figures, and the TEE is simulated. See docs/SECURITY_MODEL.md.
+          Limits: reported holdings, treasury, collateral, slippage and reference price are trusted. The TEE is simulated. The v3.1 contract has no buy, reduce-only or withdrawal path; funded positions could not be closed by this key. See docs/SECURITY_MODEL.md.
         </p>
       </div>
     </Card>
@@ -1396,7 +1395,7 @@ function ProofInspector({
               <EvidenceTag kind="simulated" />
               <p className="text-xs text-slate-400">
                 Approved by Agent 3. The solver may only send this <span className="font-mono text-slate-200">record_rebalance</span> call to the Risk Guard contract{" "}
-                <span className="font-mono text-slate-200">{run.guardian.mpcSignRequest.contractId}</span>. The contract recomputes delta and leverage from the raw legs,
+                <span className="font-mono text-slate-200">{run.guardian.mpcSignRequest.contractId}</span>. The contract recomputes delta and leverage from reported legs and trusted treasury/collateral values,
                 checks that the payload equals keccak256 of those legs and that the nonce is fresh, and only then calls{" "}
                 <span className="font-mono text-slate-200">v1.signer-prod.testnet.sign</span> itself, as the predecessor that owns the hedge key. Prepared, not
                 broadcast.

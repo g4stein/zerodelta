@@ -1,12 +1,14 @@
 # ZeroDelta
 
-**ZeroDelta is an autonomous cross-chain carry-strategy prototype. Its keyless NEAR Risk Guard contract recomputes the risk of every order and is the only account that can get NEAR Chain Signatures to sign for the treasury's hedge key. In v3.1 the contract builds the executable Hyperliquid order itself, caps its size in coins, bounds its expiry, and has the MPC network sign that order's EIP-712 digest.**
+**ZeroDelta is a prototype for constrained cross-chain order signing, demonstrated with a carry-strategy planner. Its keyless NEAR contract builds a Hyperliquid testnet IOC sell and requests an MPC signature over the order’s EIP-712 digest. The independently enforced limits are the listed market and order shape, coin-denominated order and rolling-window caps, bounded expiry, replay protection, and contract-built payload. Delta, leverage and slippage checks use solver-reported inputs; they do not establish real portfolio neutrality. No funds move or orders fill.**
 
 ▶ **Live demo:** [zerodelta.vercel.app](https://zerodelta.vercel.app/) (no wallet needed) · **Judge guide:** [docs/JUDGE_GUIDE.md](docs/JUDGE_GUIDE.md) · **Primary track:** 06 / SEC AI Security & Defense
 
-![Read-only v3.1 size-attack check rejected by the deployed contract](docs/images/contract-checker.png)
+![Read-only v3.1 naked-short proposal exposing the reported-input trust boundary](docs/images/contract-checker.png)
 
 *Captured from the read-only checker on November 12; the live demo fetches a fresh verdict. No signature or transaction is created.*
+
+**Known trust boundary:** a naked $80,000 short with no spot leg can pass when the solver reports an $800 million treasury and collateral. The live checker exposes this below. The immutable deployment also has no buy, reduce-only or withdrawal signing path.
 
 ## What it does
 
@@ -28,6 +30,7 @@ At the top of the demo, select a proposal and click **Check proposal**:
 - **Attack: inflate size** → `ORDER_SIZE_CAP`.
 - **Attack: long expiry** → `EXPIRY_TOO_FAR`.
 - **Inspect remaining price risk** → a larger sell can still be accepted under the coin cap. This is an exposed limitation, not a safety claim.
+- **Naked short with inflated treasury** → zero spot, an $80,000 short and $800 million reported treasury/collateral produce 1 bps delta and 0.01× reported leverage. The contract can accept this 38.5672 ETH sell while the signing window has capacity. This demonstrates unauthenticated inputs, not portfolio safety.
 
 Results depend on current contract state. An RPC failure shows unavailable, never a fabricated verdict. Nothing signs or broadcasts. The v2 swarm remains a separate simulation below the current proof. Historical contracts, transaction records and signatures are preserved.
 
@@ -98,11 +101,24 @@ Click **Simulate Compromised Solver (Spoofed Metrics)** on the [demo](https://ze
 Delta and leverage pass on the claim; the fingerprint check is what refuses to trust it.
 
 ### Why this is not just another AI trading bot
-Most agent "guardrails" are checks in the same process that holds the key. Here the agents hold no key. The only code that can request a signature for the hedge key is a public, hash-verified, keyless contract that recomputes the risk itself, so a compromised agent or server can at worst submit orders the policy allows (see the trusted inputs in [SECURITY_MODEL.md](docs/SECURITY_MODEL.md)).
+Most agent "guardrails" are checks in the same process that holds the key. Here the agents hold no key. The only code that can request a signature for the hedge key is a public, hash-verified, keyless contract that checks reported parameters. A compromised solver can fabricate treasury and holdings so the delta/leverage math passes; order shape, coin caps, expiry and replay restrictions still constrain its requests (see the trusted inputs in [SECURITY_MODEL.md](docs/SECURITY_MODEL.md)).
 
 ---
 
 ## NEAR-specific architecture
+
+Current **v3.1** signing path (historical signature proof; dashboard checks are read-only):
+
+```mermaid
+flowchart LR
+  S[Solver-reported legs, treasury, collateral and prices] --> C[Keyless NEAR v3.1 contract]
+  C --> L[Check order shape, coin caps, nonce and expiry]
+  L --> D[Build IOC sell, msgpack and EIP-712 digest]
+  D --> M[Contract requests NEAR MPC signature]
+  M --> H[Recorded Hyperliquid testnet signer recovery]
+```
+
+Reported-input arithmetic does not authenticate holdings. The last step proves signer recovery, not a fill. The contract has no exit or withdrawal signing path.
 
 This diagram shows the dashboard’s v2 simulation path. The current v3.1 executable-signing path is described immediately below it.
 
@@ -162,7 +178,7 @@ Rogue figures in fresh dry runs differ slightly from tx 3 (e.g. 99,996 vs 99,970
 | Command | Result | Network |
 |---|---|---|
 | `npm run typecheck` | clean | none |
-| `npm test` | **206 tests**, 10 files, including intent-boundary regressions and preview scenarios: [`swarm.test.ts`](tests/swarm.test.ts), [`adversarial.test.ts`](tests/adversarial.test.ts), [`hyperliquid.test.ts`](tests/hyperliquid.test.ts), [`hlParity.test.ts`](tests/hlParity.test.ts), [`proofFile.test.ts`](tests/proofFile.test.ts), [`intentBoundary.test.ts`](tests/intentBoundary.test.ts), [`preview.test.ts`](tests/preview.test.ts), [`reviewRegressions.test.ts`](tests/reviewRegressions.test.ts), [`requestPolicy.test.ts`](tests/requestPolicy.test.ts), [`apiRoutes.test.ts`](tests/apiRoutes.test.ts) | none (fetch mocked where used) |
+| `npm test` | **208 tests**, 10 files, including intent-boundary regressions and preview scenarios: [`swarm.test.ts`](tests/swarm.test.ts), [`adversarial.test.ts`](tests/adversarial.test.ts), [`hyperliquid.test.ts`](tests/hyperliquid.test.ts), [`hlParity.test.ts`](tests/hlParity.test.ts), [`proofFile.test.ts`](tests/proofFile.test.ts), [`intentBoundary.test.ts`](tests/intentBoundary.test.ts), [`preview.test.ts`](tests/preview.test.ts), [`reviewRegressions.test.ts`](tests/reviewRegressions.test.ts), [`requestPolicy.test.ts`](tests/requestPolicy.test.ts), [`apiRoutes.test.ts`](tests/apiRoutes.test.ts) | none (fetch mocked where used) |
 | `cd contracts/risk-guard && cargo test` | **33 tests** (v2): 18 unit tests in `src/lib.rs` + 15 in [`tests/adversarial.rs`](contracts/risk-guard/tests/adversarial.rs) | none (Rust 1.81) |
 | `cd contracts/risk-guard-v3 && cargo test` | **44 tests** (v3): 6 unit, 5 official Hyperliquid SDK vectors, 5 TS parity (incl. 110 contract-level cases), 28 [adversarial](contracts/risk-guard-v3/tests/adversarial.rs) | none (Rust 1.81) |
 | `cd contracts/risk-guard-v31 && cargo test` | **55 tests** (v3.1): 6 unit, 6 official Hyperliquid SDK vectors, 5 TS parity (134 contract-level cases), 38 [adversarial](contracts/risk-guard-v31/tests/adversarial.rs) (size caps, window, expiry, minimum value, malformed MPC response). [`MUTATION_RESULTS.md`](contracts/risk-guard-v31/MUTATION_RESULTS.md): **27/27** deliberate bugs caught (v3: [15/15](contracts/risk-guard-v3/MUTATION_RESULTS.md)); re-run with `npm run mutation:v31` | none (Rust 1.81) |
@@ -230,7 +246,11 @@ Full threat model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). v2 and the 
 
 ## Limitations
 
-- **v3.1 proves an executable Hyperliquid TESTNET order signature, validated by the exchange's signer recovery.** No funds move, no order is placed or filled, and nothing runs on mainnet. The hedge address has no Hyperliquid account; funding it would need the testnet faucet, which requires a mainnet deposit, so it was deliberately not done.
+- **Reported-input trust bypass:** a compromised solver can report zero spot, an $80,000 short and $800 million treasury/collateral; v3.1 can approve 38.5672 ETH with 1 bps delta and 0.01× leverage. With a $50,000 reported treasury instead, the same sell fails at 16,000 bps delta. Both cases were reproduced read-only at block 277325226. No signature was requested. Authentication of holdings, treasury, collateral and prices requires a new design/deployment, not a wording change.
+- **No exit or withdrawal path:** v3.1 only signs non-reduce-only sells, so this key cannot close a short or withdraw funds. Successive rolling windows can admit more shorts without verifying accumulated positions. Do not fund this immutable deployment as a complete strategy. A future design needs authenticated position reconciliation, bounded outstanding exposure, close-only actions and independently controlled recovery.
+- **Quota depletion:** recorded attempts count toward the rolling window before the MPC callback, including failed MPC calls and orders never broadcast or filled. A compromised authorized solver can consume capacity without execution. Conservatively counting attempts limits signing flow; refunding quota without proving a usable signature cannot exist could weaken that limit.
+
+- **v3.1 proves an executable Hyperliquid TESTNET order signature, validated by the exchange's signer recovery.** No funds move, no order is placed or filled, and there is no funded execution on mainnet. The hedge address has no Hyperliquid account; funding it would need the testnet faucet, which requires a mainnet deposit, so it was deliberately not done.
 - The **reference price is a trusted solver input**: a compromised solver can move the limit and the reference together, which changes the size (notional ÷ limit). v3.1 bounds that with per-market caps in coins (per order and per 24 h) and an order-count cap, but a cheaper price that still fits under the cap is approved (about 2× the intended size at half price). An on-chain oracle would remove this trust.
 - Other trusted inputs (treasury, collateral, slippage), and v2's open findings F-1, F-2 (fixed in v3) and F-3, are in [SECURITY_MODEL.md](docs/SECURITY_MODEL.md).
 - The TEE enclave and attestation are software-simulated.
@@ -241,7 +261,7 @@ Full threat model: [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). v2 and the 
 ## Future production pathway
 
 1. ~~A v3 contract that builds the Hyperliquid action and EIP-712 digest on-chain and signs *that*, with price bands and block-time nonces.~~ **Done on testnet** ([plan and status](docs/HYPERLIQUID_EXECUTION_PATH.md)).
-2. Make the MPC-derived key a funded Hyperliquid account (or have the contract sign an `approveAgent` for it), and land a tiny IOC fill on testnet.
+2. Design and verify authenticated holdings/position inputs, safe close-only signing, outstanding-exposure limits and recovery before funding. A separate master-account/API-wallet arrangement is one candidate, not an implemented fix. Any successor requires a new deployment; only then consider a tiny funded testnet lifecycle including an exit.
 3. An authenticated price oracle for the band (closes the residual half-price risk); read treasury balances on-chain instead of trusting the solver; DAO-controlled timelocked upgrades.
 4. Real TEE attestation (NEAR AI Cloud / Phala TDX) verified against vendor collateral.
 5. Funded execution on mainnet only after an external audit.
@@ -275,7 +295,7 @@ Next.js 16, React 19, Tailwind 4, near-api-js 7, near-sdk 5.5 (Rust), secp256k1 
 
 ### API
 
-`GET /api/hedge-preview?scenario=<case>` reads the deployed v3.1 contract. Cases are `approved`, `size-attack`, `expiry-attack` and `price-risk` (default: `approved`). The response includes `request`, `evaluation`, `contractId`, `blockHeight` and `checkedAt`. RPC failure returns HTTP 503 with `live: false`; unknown scenarios return 400. It never signs or broadcasts.
+`GET /api/hedge-preview?scenario=<case>` reads the deployed v3.1 contract. Cases are `approved`, `size-attack`, `expiry-attack`, `price-risk` and `naked-short` (default: `approved`). The response includes `request`, `evaluation`, `contractId`, `blockHeight` and `checkedAt`. RPC failure returns HTTP 503 with `live: false`; unknown scenarios return 400. It never signs or broadcasts.
 
 ```bash
 curl -fsS 'https://zerodelta.vercel.app/api/hedge-preview?scenario=size-attack' | jq '.evaluation.violations'

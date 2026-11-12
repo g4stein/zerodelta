@@ -1,5 +1,8 @@
 # From contract-gated signature to an executable Hyperliquid hedge
 
+> Current funding boundary: the immutable v3.1 deployment accepts solver-reported portfolio inputs and only signs non-reduce-only sells. It has no closing-buy or withdrawal path. Before any funded lifecycle, design and verify authenticated inputs, position reconciliation, close-only controls and independent recovery in a successor deployment/account arrangement. See [security model §8](SECURITY_MODEL.md#8-risk-guard-v31-current). Historical milestones below are not authorization to fund this deployment.
+
+
 ## Status
 
 Current path: **v3.1** ([`zerodelta-guard-v31-c6e71c.testnet`](https://testnet.nearblocks.io/address/zerodelta-guard-v31-c6e71c.testnet), adds coin size caps, a rolling window and `expiresAfter`). The v3 rows below describe the first deployment, which a pre-merge audit superseded (README, `docs/SECURITY_MODEL.md` §7.5). What was shown is Hyperliquid's **signer recovery**, not an accepted, funded order.

@@ -8,9 +8,12 @@ const cases: { id: PreviewScenario; label: string; description: string }[] = [
   { id: "size-attack", label: "Attack: inflate size", description: "Set limit and reference to one tenth of the reference price. The resulting sell should exceed the coin cap." },
   { id: "expiry-attack", label: "Attack: long expiry", description: "Ask for a two-hour expiry, beyond the contract's one-hour maximum." },
   { id: "price-risk", label: "Inspect remaining price risk", description: "Halve both prices. A larger sell can still fit under the cap: this demonstrates why an independent price oracle is needed." },
+  { id: "naked-short", label: "Naked short with inflated treasury", description: "No spot leg, an $80,000 short, and $800 million in reported treasury and collateral. The math can pass because the contract does not authenticate those inputs." },
 ];
 interface Result {
   contractId: string; blockHeight: number; checkedAt: string;
+  scenario: PreviewScenario;
+  request: { order: { spot_long_usd_cents: number; perp_short_usd_cents: number; treasury_usd_cents: number; collateral_usd_cents: number } };
   evaluation: { approved: boolean; size_e8: number; net_delta_bps: number; leverage_x100: number; digest_hex: string; action_json: string; expires_after_ms: number; window_order_count: number; violations: string[] };
 }
 export function V31Preview() {
@@ -40,13 +43,18 @@ export function V31Preview() {
     <div aria-live="polite" className="mt-4">
       {error && <p role="alert" className="text-sm text-amber-300">Unavailable: {error}. No verdict is inferred. Try again when the RPC is available.</p>}
       {result && <div className="space-y-3 text-sm text-slate-300">
-        <Badge tone={result.evaluation.approved ? "emerald" : "rose"}>{result.evaluation.approved ? "ACCEPTED BY CONTRACT POLICY" : "REJECTED BY CONTRACT POLICY"}</Badge>
+        <Badge tone={result.evaluation.approved ? (result.scenario === "naked-short" || result.scenario === "price-risk" ? "amber" : "emerald") : "rose"}>{result.evaluation.approved ? "ACCEPTED BY CONTRACT POLICY" : "REJECTED BY CONTRACT POLICY"}</Badge>
+        {result.scenario === "naked-short" && <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-amber-200">
+          <p className="font-semibold">Trust boundary: reported inputs are not verified holdings.</p>
+          <p>Reported spot: ${(result.request.order.spot_long_usd_cents / 100).toLocaleString("en-US")} · short: ${(result.request.order.perp_short_usd_cents / 100).toLocaleString("en-US")} · treasury: ${(result.request.order.treasury_usd_cents / 100).toLocaleString("en-US")} · collateral: ${(result.request.order.collateral_usd_cents / 100).toLocaleString("en-US")}.</p>
+          <p>The delta and leverage checks cannot establish real portfolio neutrality. The contract still enforces order shape, coin caps, expiry and nonce rules. Current window state may also reject this proposal.</p>
+        </div>}
         <p>Reported delta: {result.evaluation.net_delta_bps} bps · leverage: {(result.evaluation.leverage_x100 / 100).toFixed(2)}× · sell size: {result.evaluation.size_e8 / 1e8} ETH · orders in current window: {result.evaluation.window_order_count}</p>
         {result.evaluation.violations.length > 0 && <ul className="list-inside list-disc text-rose-300">{result.evaluation.violations.map(v => <li key={v}>{v}</li>)}</ul>}
         <details><summary className="cursor-pointer text-cyan-300">Inspect contract-built order and digest</summary><pre className="mt-2 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-950 p-3 text-xs">{JSON.stringify({ action: result.evaluation.action_json ? JSON.parse(result.evaluation.action_json) : null, digest: result.evaluation.digest_hex, expiresAfter: result.evaluation.expires_after_ms }, null, 2)}</pre></details>
         <p className="break-all text-xs text-slate-500">{result.contractId} · block {result.blockHeight} · checked {result.checkedAt}</p>
       </div>}
     </div>
-    <p className="mt-4 text-xs leading-relaxed text-amber-200/80">An accepted proposal is not proof of safety or execution. The contract checks reported hedge legs; it does not verify actual spot holdings, collateral or an independent market price. Coin caps bound order size, not outstanding portfolio exposure.</p>
+    <p className="mt-4 text-xs leading-relaxed text-amber-200/80">An accepted proposal is not proof of safety or execution. The contract checks reported hedge legs; it does not verify actual spot holdings, treasury, collateral or an independent market price. Coin caps bound order size and signing volume, not outstanding portfolio exposure. This deployment has no buy, reduce-only or withdrawal signing path.</p>
   </Card>;
 }

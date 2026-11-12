@@ -31,7 +31,8 @@ These review areas are useful preparation, not a published numerical scoring rub
 ## Explicit remaining boundaries
 
 - Software-simulated TEE; no vendor-backed hardware attestation.
-- Solver-supplied reference price, treasury, collateral and slippage remain trusted. Coin caps limit signing volume, not actual outstanding positions.
+- Solver-supplied holdings, reference price, treasury, collateral and slippage remain trusted. A naked $80,000 short can pass by inflating reported treasury/collateral; coin caps limit signing volume, not actual outstanding positions.
+- The immutable v3.1 deployment cannot sign closing buys, reduce-only orders or withdrawals. Recorded attempts consume window capacity even when MPC fails or orders never fill.
 - Hyperliquid testnet signer recovery is recorded evidence; the account is unfunded and no order filled.
 - Dashboard swarm runs demonstrate the historical v2 policy; the current read-only checker and executable-signing proof use v3.1.
 - [Demo safeguards](DEMO_OPERATIONS.md) are instance-level; deployment-wide quotas require external configuration.
