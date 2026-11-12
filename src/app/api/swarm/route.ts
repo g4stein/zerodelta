@@ -1,3 +1,4 @@
+import { createGate, createShortCache, readJsonObject, requestError } from "@/lib/server/requestPolicy";
 import { NextResponse } from "next/server";
 import { getLiveTelemetry } from "@/lib/near/rpcClient";
 import { getOnchainProofStatus } from "@/lib/near/riskGuardContract";
@@ -9,17 +10,21 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+const enterSwarm = createGate(12, 2);
+const telemetrySnapshot = createShortCache(async () => {
+  const [telemetry, onchain, onchainV3] = await Promise.all([
+    getLiveTelemetry(), getOnchainProofStatus(),
+    getV3OnchainStatus().catch(() => ({ live: false, contractId: "", error: "Contract status unavailable" })),
+  ]);
+  return { ...telemetry, onchain, onchainV3 };
+}, 10_000);
+
 /** GET /api/swarm — live NEAR RPC + Chain Signatures + 1Click telemetry + on-chain testnet proof status (v2 and v3). */
 export async function GET() {
   try {
-    const [telemetry, onchain, onchainV3] = await Promise.all([
-      getLiveTelemetry(),
-      getOnchainProofStatus(),
-      getV3OnchainStatus().catch((err) => ({ live: false, contractId: "", error: err instanceof Error ? err.message : String(err) })),
-    ]);
-    return NextResponse.json({ ...telemetry, onchain, onchainV3 }, { headers: { "cache-control": "no-store" } });
+    return NextResponse.json(await telemetrySnapshot(), { headers: { "cache-control": "no-store" } });
   } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "telemetry failed" }, { status: 500 });
+    return requestError(err, "Telemetry unavailable; please retry shortly");
   }
 }
 
@@ -28,16 +33,15 @@ export async function GET() {
  * Body: { mode: "rebalance" | "rogue", treasuryUsd: number, pair: "NEAR" | "SOL" | "ETH", sliceCount: number }
  */
 export async function POST(req: Request) {
-  let body: unknown = {};
+  let release: (() => void) | undefined;
   try {
-    body = await req.json();
-  } catch {
-    body = {};
-  }
-  try {
+    release = enterSwarm();
+    const body = await readJsonObject(req);
     const run = await runSwarm(parseSwarmRequest(body));
     return NextResponse.json(run, { headers: { "cache-control": "no-store" } });
   } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "swarm run failed" }, { status: 500 });
+    return requestError(err, "Swarm unavailable; please retry shortly");
+  } finally {
+    release?.();
   }
 }
