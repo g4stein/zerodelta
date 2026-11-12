@@ -1,6 +1,8 @@
-# X post drafts (you post them yourself)
+# Historical X post drafts
 
-Nothing here has been posted. Attach the demo video to the main post, then paste the text exactly. Lengths are counted the way X counts them: each link is 23 characters, emoji and arrows are 2. The free X limit is 280.
+> **Superseded production draft.** The project owner reports that the demo has been posted and ZeroDelta has been submitted. This file records earlier draft copy; it is not the current submission status or a publishing checklist. Do not submit the project again.
+
+Use the [judge guide](JUDGE_GUIDE.md) and [security model](SECURITY_MODEL.md) for current claims and limitations. Draft text and counts below are preserved as historical material and should not be reused without review.
 
 ## Main post (draft A, recommended)
 
