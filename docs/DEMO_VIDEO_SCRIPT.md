@@ -1,6 +1,8 @@
-# Demo video script, v3.1 (about 110 seconds)
+# Historical demo video script (about 110 seconds)
 
-A draft for you to record or animate. Nothing here has been published. Every number below is from the recorded proof (`testnet-proof.json`, `hl-acceptance.json`); on screen, show the real page and terminal rather than retyping numbers.
+> **Superseded production draft.** This earlier script predates the current demo and the explicit naked-short/lifecycle disclosures. The project owner reports that the updated demo and submission are complete. This file is retained for history, not as the current recording plan.
+
+For current guarantees and limitations, use the [judge guide](JUDGE_GUIDE.md) and [security model](SECURITY_MODEL.md). Historical instructions and numbers below are not a current verification report.
 
 Before recording: open [zerodelta.vercel.app](https://zerodelta.vercel.app/), wait until the v3.1 panel's top-right badges say *locked (0 keys)* and *attestation #0 Signed*, and open the approved transaction on Nearblocks in a second tab. In a terminal, `cd zerodelta && npm ci` so `npm run hl:acceptance` starts quickly.
 
